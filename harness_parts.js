@@ -126,27 +126,30 @@ const FACTS = 'JSON.stringify({' +
 
 async function run() {
   const { chrome, cdp } = await launch();
-  const base = 'http://localhost:' + PORT + '/';
+  const base = process.env.HBR2_URL || 'http://localhost:' + PORT + '/';
+  let f;
   try {
-    console.log('\n— Rec multi-parte (análisis sin autoparts) —');
-    await goto(cdp, base + '?sample=samples/multipart.hbr2');
-    await cdp.waitFor('document.querySelectorAll(".partrow").length === 3', 30000);
-    let f = JSON.parse(await cdp.evaluate(FACTS));
-    ok(f.rows === 3, '3 filas de parte renderizadas');
-    ok(f.labels.join(',') === 'Parte 1,Parte 2,Parte 3', 'etiquetas Parte 1/2/3');
-    ok(f.btnRemoveDisabled === true, 'botón quitar deshabilitado sin selección');
-    ok(f.errDisplay !== 'block', 'sin caja de error');
+    if (!process.env.HBR2_URL) {
+      console.log('\n— Rec multi-parte (análisis sin autoparts) —');
+      await goto(cdp, base + '?sample=samples/multipart.hbr2');
+      await cdp.waitFor('document.querySelectorAll(".partrow").length === 3', 30000);
+      let f = JSON.parse(await cdp.evaluate(FACTS));
+      ok(f.rows === 3, '3 filas de parte renderizadas');
+      ok(f.labels.join(',') === 'Parte 1,Parte 2,Parte 3', 'etiquetas Parte 1/2/3');
+      ok(f.btnRemoveDisabled === true, 'botón quitar deshabilitado sin selección');
+      ok(f.errDisplay !== 'block', 'sin caja de error');
 
-    console.log('\n— Rec multi-parte (autoparts quita partes 2 y 3) —');
-    await goto(cdp, base + '?sample=samples/multipart.hbr2&autoparts=1');
-    await cdp.waitFor('document.title.indexOf("PARTS_DONE_") === 0', 60000);
-    f = JSON.parse(await cdp.evaluate(FACTS));
-    ok(f.rows === 1, 'tras quitar partes 2 y 3 queda 1 parte');
-    ok(f.labels.join(',') === 'Parte 1', 'sin etiquetas Parte 2/3');
-    ok(f.btnSaveHidden === false, 'botón Guardar .hbr2 de partes visible');
-    ok(f.playerName === 'multipart.hbr2 → multipart_sin_partes.hbr2', 'el reproductor muestra el resultado');
-    ok(f.status.indexOf('Partes quitadas: resultado listo') === 0, 'estado "Partes quitadas…"');
-    ok(f.errDisplay !== 'block', 'sin caja de error');
+      console.log('\n— Rec multi-parte (autoparts quita partes 2 y 3) —');
+      await goto(cdp, base + '?sample=samples/multipart.hbr2&autoparts=1');
+      await cdp.waitFor('document.title.indexOf("PARTS_DONE_") === 0', 60000);
+      f = JSON.parse(await cdp.evaluate(FACTS));
+      ok(f.rows === 1, 'tras quitar partes 2 y 3 queda 1 parte');
+      ok(f.labels.join(',') === 'Parte 1', 'sin etiquetas Parte 2/3');
+      ok(f.btnSaveHidden === false, 'botón Guardar .hbr2 de partes visible');
+      ok(f.playerName === 'multipart.hbr2 → multipart_sin_partes.hbr2', 'el reproductor muestra el resultado');
+      ok(f.status.indexOf('Partes quitadas: resultado listo') === 0, 'estado "Partes quitadas…"');
+      ok(f.errDisplay !== 'block', 'sin caja de error');
+    }
 
     console.log('\n— Rec de 1 parte (sample.hbr2) —');
     await goto(cdp, base + '?sample=samples/sample.hbr2');
