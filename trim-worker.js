@@ -1,7 +1,9 @@
-// trim-worker.js — Web Worker que recorta un .hbr2 en segundo plano.
-// Aplica mergeCore.trimReplay(bytes, start, end) y devuelve el archivo recortado.
-// Protocolo: { id, action:'preview'|'save', bytes: ArrayBuffer, start, end }
-//   -> { id, action, ok:true, bytes: ArrayBuffer (transferido), size } | { id, action, ok:false, error }
+// trim-worker.js — Web Worker que analiza y recorta un .hbr2 en segundo plano.
+// Protocolo:
+//   { id, action:'preview'|'save', bytes: ArrayBuffer, start, end }  -> trimReplay
+//   { id, action:'analysis', bytes: ArrayBuffer }                    -> analyzeReplay
+//   { id, action:'saveParts', bytes: ArrayBuffer, removals:[[s,e]] } -> cutParts
+//   -> { id, action, ok:true, ...resultado } | { id, action, ok:false, error }
 'use strict';
 
 // ---------- stubs de navegador mínimos que exige game-min_patched.js ----------
@@ -91,6 +93,16 @@ self.onmessage = function (e) {
   }
   try {
     const bytes = new Uint8Array(msg.bytes);
+    if (msg.action === 'analysis') {
+      const an = self.mergeCore.analyzeReplay(bytes);
+      post({ ok: true, dur: an.dur, parts: an.parts, markers: an.markers });
+      return;
+    }
+    if (msg.action === 'saveParts') {
+      const out = self.mergeCore.cutParts(bytes, msg.removals || []);
+      post({ ok: true, size: out.length, bytes: out.buffer }, [out.buffer]);
+      return;
+    }
     const out = self.mergeCore.trimReplay(bytes, msg.start, msg.end);
     post({ ok: true, size: out.length, bytes: out.buffer }, [out.buffer]);
   } catch (err) {

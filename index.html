@@ -58,6 +58,18 @@
   .btn.small { padding:4px 9px; font-size:12px; }
   .spacer { flex:1; }
   #trimInfo { font-size:13px; color:var(--mut); font-variant-numeric:tabular-nums; }
+  .partrow { display:flex; align-items:center; gap:10px; padding:9px 12px; border:1px solid var(--line);
+    border-radius:8px; margin-bottom:8px; background:var(--panel2); cursor:pointer; font-size:13px; }
+  .partrow:hover { border-color:var(--acc); }
+  .partrow:has(input:checked) { border-color:var(--acc); }
+  .partrow input[type=checkbox] { accent-color:var(--acc); width:16px; height:16px; flex:none; margin:0; }
+  .partrow .pnum { font-weight:700; color:var(--acc); min-width:72px; }
+  .partrow .prange { color:var(--txt); font-variant-numeric:tabular-nums; flex:1; }
+  .partrow .pframes { color:var(--mut); font-size:12px; font-variant-numeric:tabular-nums; }
+  #partsInfo { font-size:13px; color:var(--mut); font-variant-numeric:tabular-nums; }
+  #partsStatus { min-height:20px; font-size:13px; margin-top:10px; }
+  #partsStatus.ok { color:var(--ok); font-weight:600; }
+  #partsStatus.error { color:var(--bad); font-weight:600; }
   .note { background:rgba(241,196,15,.08); border:1px solid var(--warn); border-radius:8px;
     padding:10px 14px; font-size:13px; margin-top:12px; display:none; color:#f7e7b0; }
   #status { min-height:20px; font-size:13px; margin-top:10px; }
@@ -133,6 +145,18 @@
     </table>
   </div>
 
+  <div class="card hidden" id="partscard">
+    <h2 data-i18n="partsTitle">Partes de la grabación</h2>
+    <div id="partsList"></div>
+    <div class="actions">
+      <button class="btn" id="btnPartsRemove" data-i18n="btnPartsRemove" disabled>Quitar seleccionadas</button>
+      <button class="btn primary hidden" id="btnPartsSave" data-i18n="btnSave">Guardar .hbr2</button>
+      <div class="spacer"></div>
+      <span id="partsInfo"></span>
+    </div>
+    <div id="partsStatus"></div>
+  </div>
+
   <div class="card hidden" id="trimcard">
     <h2>Recorte</h2>
     <div class="trimrow">
@@ -188,7 +212,7 @@
   var I18N = {
     es: {
       title: 'Editor de recs HBR2',
-      sub: 'Recorta grabaciones .hbr2 de HaxBall: selecciona inicio y fin, previsualiza con el motor y guarda el recorte.',
+      sub: 'Recorta grabaciones .hbr2 de HaxBall: selecciona inicio y fin o quita partes completas, previsualiza con el motor y guarda.',
       dropTitle: 'Arrastra aquí un <b>.hbr2</b> o haz clic para elegirlo',
       dropHint: 'El recorte se procesa íntegramente en tu navegador (Web Worker): los archivos no se suben a ningún servidor.',
       fileWarn: '<b>Estás abriendo esta página con doble clic (protocolo <code>file://</code>).</b> Chrome bloquea los Web Workers en <code>file://</code>, así que el recorte no puede arrancar. Ábrela a través de un servidor local (<code>npx serve</code>, Live Server, <code>python -m http.server</code>) o usa la versión desplegada en Cloudflare Pages.',
@@ -212,6 +236,14 @@
       statusPreviewDone: 'Vista previa del recorte cargada ({frames} frames).',
       statusSaved: 'Guardado: {name}',
       statusTrimmed: 'Recorte listo ({frames} frames · {size}).',
+      partsTitle: 'Partes de la grabación',
+      partLabel: 'Parte {n}',
+      btnPartsRemove: 'Quitar seleccionadas',
+      partsProgress: 'Quitando partes…',
+      partsDone: 'Partes quitadas: resultado listo ({frames} frames).',
+      partsCount: '{n} partes',
+      partsCount1: '1 parte',
+      partsSel: '{n} seleccionadas · {f} frames',
       errMagic: 'no es un .hbr2 (magic HBR2 no encontrado)',
       errVer: 'versión de replay no soportada: {v} (se espera 3)',
       errRange: 'recorte inválido: el final debe ser mayor que el inicio',
@@ -224,7 +256,7 @@
     },
     en: {
       title: 'HBR2 Rec Editor',
-      sub: 'Trim HaxBall .hbr2 recordings: pick start and end, preview with the engine and save the clip.',
+      sub: 'Trim HaxBall .hbr2 recordings: pick start and end or remove whole parts, preview with the engine and save.',
       dropTitle: 'Drop a <b>.hbr2</b> here or click to choose one',
       dropHint: 'Trimming runs entirely in your browser (Web Worker): files are never uploaded to any server.',
       fileWarn: '<b>You are opening this page by double-clicking it (<code>file://</code> protocol).</b> Chrome blocks Web Workers on <code>file://</code>, so trimming cannot start. Open it through a local server (<code>npx serve</code>, Live Server, <code>python -m http.server</code>) or use the Cloudflare Pages version.',
@@ -248,6 +280,14 @@
       statusPreviewDone: 'Preview trim loaded ({frames} frames).',
       statusSaved: 'Saved: {name}',
       statusTrimmed: 'Trim ready ({frames} frames · {size}).',
+      partsTitle: 'Recording parts',
+      partLabel: 'Part {n}',
+      btnPartsRemove: 'Remove selected',
+      partsProgress: 'Removing parts…',
+      partsDone: 'Parts removed: result ready ({frames} frames).',
+      partsCount: '{n} parts',
+      partsCount1: '1 part',
+      partsSel: '{n} selected · {f} frames',
       errMagic: 'not an .hbr2 (HBR2 magic not found)',
       errVer: 'unsupported replay version: {v} (expected 3)',
       errRange: 'invalid trim: the end must be greater than the start',
@@ -269,8 +309,9 @@
     bytes: null, name: '', dur: 0,
     start: 0, end: 0,
     trimmed: null, trimmedKey: null, trimmedName: '',
+    parts: [], partsResult: null, partsResultName: '',
     view: null, rep: null, isPreview: false, trimMarkers: null,
-    jobId: 0, worker: null
+    jobId: 0, analysisId: 0, worker: null
   };
 
   function tr(key, vars) {
@@ -312,6 +353,11 @@
     var el = $('err');
     el.innerHTML = msg || '';
     el.style.display = msg ? 'block' : 'none';
+  }
+  function setPartsStatus(msg, cls) {
+    var el = $('partsStatus');
+    el.textContent = msg || '';
+    el.className = cls || '';
   }
 
   if (!window._pxy_$b || !window._pxy_va || !window._pxy_vc) {
@@ -441,6 +487,10 @@
     state.bytes = bytes; state.name = name; state.dur = hdr.dur;
     state.start = 0; state.end = hdr.dur;
     state.trimmed = null; state.trimmedKey = null;
+    state.parts = []; state.partsResult = null; state.partsResultName = '';
+    $('partsList').innerHTML = '';
+    $('btnPartsSave').classList.add('hidden');
+    setPartsStatus('');
     $('infocard').classList.remove('hidden');
     $('trimcard').classList.remove('hidden');
     $('playercard').classList.remove('hidden');
@@ -451,6 +501,70 @@
     updatePlayerBar();
     mountPlayer(bytes, {});
     setStatus(tr('statusLoaded', { name: name }) + ' · ' + fmt(bytes.length), 'ok');
+    requestAnalysis(bytes);
+  }
+
+  function requestAnalysis(bytes) {
+    state.analysisId++;
+    try {
+      getWorker().postMessage({ id: state.analysisId, action: 'analysis', bytes: bytes });
+    } catch (e) { setStatus(e.message, 'error'); }
+  }
+
+  function getSelectedParts() {
+    var out = [], rows = document.querySelectorAll('.partcb');
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].checked) {
+        var p = state.parts[+rows[i].dataset.i];
+        if (p) out.push([p.start, p.end]);
+      }
+    }
+    return out;
+  }
+
+  function updatePartsUI() {
+    var parts = state.parts || [];
+    var sel = getSelectedParts();
+    var f = sel.reduce(function (t, r) { return t + (r[1] - r[0]); }, 0);
+    $('btnPartsRemove').disabled = parts.length < 2 || sel.length === 0;
+    $('partsInfo').textContent = sel.length ? tr('partsSel', { n: sel.length, f: f })
+      : (parts.length === 1 ? tr('partsCount1') : tr('partsCount', { n: parts.length }));
+  }
+
+  function renderParts() {
+    var card = $('partscard'), list = $('partsList');
+    var parts = state.parts || [];
+    if (!parts.length) { card.classList.add('hidden'); return; }
+    card.classList.remove('hidden');
+    list.innerHTML = '';
+    for (var i = 0; i < parts.length; i++) {
+      (function (idx, p) {
+        var row = document.createElement('label');
+        row.className = 'partrow';
+        var cb = document.createElement('input');
+        cb.type = 'checkbox'; cb.className = 'partcb'; cb.dataset.i = idx;
+        var num = document.createElement('span'); num.className = 'pnum';
+        num.textContent = tr('partLabel', { n: idx + 1 });
+        var range = document.createElement('span'); range.className = 'prange';
+        range.textContent = fmtTime(p.start) + ' – ' + fmtTime(p.end);
+        var fr = document.createElement('span'); fr.className = 'pframes';
+        fr.textContent = (p.end - p.start) + ' ' + tr('lblFrames');
+        row.appendChild(cb); row.appendChild(num); row.appendChild(range); row.appendChild(fr);
+        cb.addEventListener('change', updatePartsUI);
+        list.appendChild(row);
+      })(i, parts[i]);
+    }
+    updatePartsUI();
+  }
+
+  function downloadParts() {
+    var blob = new Blob([state.partsResult], { type: 'application/octet-stream' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = state.partsResultName;
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+    setStatus(tr('statusSaved', { name: state.partsResultName }) + ' · ' + fmt(state.partsResult.length), 'ok');
   }
 
   function loadFile(file) {
@@ -489,9 +603,41 @@
 
   function onWorkerMsg(e) {
     var m = e.data;
-    if (!m || m.id !== state.jobId) return;
+    if (!m) return;
+    if (m.action === 'analysis') {
+      if (m.id !== state.analysisId) return;
+      state.analysisId = 0;
+      if (!m.ok) { setPartsStatus(tr('errTrim') + m.error, 'error'); return; }
+      state.parts = m.parts || [];
+      renderParts();
+      if (autoParts && !state.autoPartsDone) {
+        state.autoPartsDone = true;
+        var rows = document.querySelectorAll('.partcb');
+        for (var i = 0; i < rows.length; i++) if (i !== 0) rows[i].checked = true;
+        updatePartsUI();
+        $('btnPartsRemove').click();
+      } else if (autoParts && state.autoPartsDone) {
+        document.title = 'PARTS_DONE_' + state.parts.length;
+      }
+      return;
+    }
+    if (m.id !== state.jobId) return;
     state.jobId = 0;
     if (!m.ok) { setStatus(tr('errTrim') + m.error, 'error'); return; }
+    if (m.action === 'saveParts') {
+      state.partsResult = new Uint8Array(m.bytes);
+      state.partsResultName = stem(state.name) + (lang === 'es' ? '_sin_partes' : '_parts_removed') + '.hbr2';
+      state.trimmedName = state.partsResultName;
+      $('btnPartsSave').classList.remove('hidden');
+      setPartsStatus('');
+      state.isPreview = false;
+      mountPlayer(state.partsResult, { preview: true });
+      updatePlayerBar();
+      var pdur = readHeader(state.partsResult).dur;
+      setStatus(tr('partsDone', { frames: pdur }), 'ok');
+      requestAnalysis(state.partsResult);
+      return;
+    }
     state.trimmed = new Uint8Array(m.bytes);
     state.trimmedKey = state.start + ':' + state.end;
     state.trimmedName = stem(state.name) + (lang === 'es' ? '_recortado' : '_trimmed') + '.hbr2';
@@ -526,6 +672,19 @@
     mountPlayer(state.bytes, {});
     updatePlayerBar();
   });
+  $('btnPartsRemove').addEventListener('click', function () {
+    var selected = getSelectedParts();
+    if (!selected.length) return;
+    state.jobId++;
+    setPartsStatus(tr('partsProgress'), 'running');
+    setStatus('');
+    try {
+      getWorker().postMessage({ id: state.jobId, action: 'saveParts', bytes: state.bytes, removals: selected });
+    } catch (e) { setPartsStatus(e.message, 'error'); }
+  });
+  $('btnPartsSave').addEventListener('click', function () {
+    if (state.partsResult) downloadParts();
+  });
 
   if (location.protocol === 'file:') {
     $('warnbar').innerHTML = tr('fileWarn');
@@ -535,6 +694,7 @@
   applyI18n();
 
   var qp = new URLSearchParams(location.search);
+  var autoParts = qp.get('autoparts') === '1';
   var sample = qp.get('sample');
   if (sample) {
     fetch(sample).then(function (r) {
