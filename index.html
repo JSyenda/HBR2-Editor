@@ -259,7 +259,10 @@
     <div class="actions">
       <h2 data-i18n="histTitle">Historial de recs modificadas</h2>
       <div class="spacer"></div>
+      <button class="btn small" id="histExport" type="button" data-i18n="histExport">Exportar</button>
+      <button class="btn small" id="histImport" type="button" data-i18n="histImport">Importar</button>
       <button class="btn small" id="histClear" type="button" data-i18n="histClear">Vaciar</button>
+      <input type="file" id="histImportInput" accept="application/json,.json" hidden>
     </div>
     <div id="histList"></div>
   </div>
@@ -413,6 +416,13 @@
       histOpen: 'Abrir',
       histDownload: 'Descargar',
       histDelete: 'Borrar',
+      histCopy: 'Copiar enlace',
+      histExport: 'Exportar',
+      histImport: 'Importar',
+      histExported: 'Historial exportado.',
+      histImported: 'Historial importado: {n} recs.',
+      histImportErr: 'error al importar: ',
+      errNoHist: 'No se encontró la rec del enlace en este navegador.',
       histClear: 'Vaciar',
       histCleared: 'Historial vaciado.',
       histDeleted: 'Borrada: {name}',
@@ -489,6 +499,13 @@
       histOpen: 'Open',
       histDownload: 'Download',
       histDelete: 'Delete',
+      histCopy: 'Copy link',
+      histExport: 'Export',
+      histImport: 'Import',
+      histExported: 'History exported.',
+      histImported: 'History imported: {n} recordings.',
+      histImportErr: 'import error: ',
+      errNoHist: 'Recording from this link was not found in this browser.',
       histClear: 'Clear',
       histCleared: 'History cleared.',
       histDeleted: 'Deleted: {name}',
@@ -893,11 +910,7 @@
     updatePartsUI();
   }
 
-  function copyLink() {
-    var text = location.href;
-    function done(ok) {
-      setStatus(ok ? tr('copyDone') : tr('copyFail'), ok ? 'ok' : 'error');
-    }
+  function copyText(text, done) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(function () { done(true); }).catch(function () { done(false); });
     } else {
@@ -914,6 +927,18 @@
     }
   }
 
+  function copyLink() {
+    copyText(location.href, function (ok) {
+      setStatus(ok ? tr('copyDone') : tr('copyFail'), ok ? 'ok' : 'error');
+    });
+  }
+
+  function copyHistLink(id) {
+    copyText(location.origin + location.pathname + '?hist=' + id, function (ok) {
+      setStatus(ok ? tr('copyDone') : tr('copyFail'), ok ? 'ok' : 'error');
+    });
+  }
+
   function download(name, bytes) {
     var blob = new Blob([bytes], { type: 'application/octet-stream' });
     var a = document.createElement('a');
@@ -925,12 +950,16 @@
 
   function saveEdit(op, data, srcName, name, params) {
     if (!window.HBRDB) return;
+    var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     window.HBRDB.saveEdit({
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+      id: id,
       createdAt: Date.now(),
       op: op, srcName: srcName, name: name,
       size: data.length, dur: readHeader(data).dur, params: params, data: data
-    }).then(renderHist).catch(function (e) { setStatus(tr('errHist') + (e && e.message ? e.message : e), 'error'); });
+    }).then(function () {
+      renderHist();
+      try { history.replaceState(null, '', '?hist=' + id); } catch (e) {}
+    }).catch(function (e) { setStatus(tr('errHist') + (e && e.message ? e.message : e), 'error'); });
   }
 
   function renderHist() {
@@ -952,7 +981,9 @@
         var meta = document.createElement('span'); meta.className = 'hist-meta';
         meta.textContent = fmtTime(r.dur) + ' · ' + fmt(r.size) + ' · ' + new Date(r.createdAt).toLocaleString();
         var dl = document.createElement('button'); dl.type = 'button'; dl.className = 'btn small'; dl.textContent = tr('histDownload');
+        var cp = document.createElement('button'); cp.type = 'button'; cp.className = 'btn small'; cp.textContent = tr('histCopy');
         var del = document.createElement('button'); del.type = 'button'; del.className = 'btn small'; del.textContent = tr('histDelete');
+        cp.addEventListener('click', function () { copyHistLink(r.id); });
         dl.addEventListener('click', function () {
           window.HBRDB.getEdit(r.id).then(function (rec) {
             if (!rec || !rec.data) return;
@@ -971,7 +1002,8 @@
             try { loadBytes(rec.data, rec.name); } catch (e) { setStatus(e.message, 'error'); }
           }).catch(function () {});
         });
-        row.appendChild(op); row.appendChild(open); row.appendChild(meta); row.appendChild(dl); row.appendChild(del);
+        row.appendChild(op); row.appendChild(open); row.appendChild(meta);
+        row.appendChild(cp); row.appendChild(dl); row.appendChild(del);
         box.appendChild(row);
       });
     }).catch(function () {});
@@ -1170,6 +1202,62 @@
     card.classList.toggle('hidden', !show);
     if (show) renderHist();
   });
+  function bytesToB64(u8) {
+    var bin = '', chunk = 0x8000;
+    for (var i = 0; i < u8.length; i += chunk) bin += String.fromCharCode.apply(null, u8.subarray(i, Math.min(i + chunk, u8.length)));
+    return btoa(bin);
+  }
+  function b64ToBytes(b64) {
+    var bin = atob(b64);
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function exportHist() {
+    window.HBRDB.listEdits().then(function (list) {
+      return Promise.all(list.map(function (r) {
+        return window.HBRDB.getEdit(r.id).then(function (rec) {
+          return { id: rec.id, createdAt: rec.createdAt, op: rec.op, srcName: rec.srcName, name: rec.name,
+            size: rec.size, dur: rec.dur, params: rec.params, data: bytesToB64(rec.data) };
+        });
+      }));
+    }).then(function (edits) {
+      var json = JSON.stringify({ app: 'hbr2-editor', ver: 1, edits: edits });
+      download('historial_' + new Date().toISOString().slice(0, 10) + '.json', new TextEncoder().encode(json));
+      setStatus(tr('histExported'), 'ok');
+    }).catch(function (e) { setStatus(tr('errHist') + (e && e.message ? e.message : e), 'error'); });
+  }
+
+  function importHistFile(file) {
+    var rd = new FileReader();
+    rd.onload = function () {
+      try {
+        var data = JSON.parse(rd.result);
+        if (!data || !Array.isArray(data.edits)) throw new Error('formato inválido');
+        Promise.all(data.edits.map(function (r) {
+          return window.HBRDB.saveEdit({
+            id: String(r.id), createdAt: r.createdAt || Date.now(),
+            op: r.op === 'parts' ? 'parts' : 'trim',
+            srcName: r.srcName || '', name: r.name || 'rec.hbr2',
+            size: r.size || 0, dur: r.dur || 0, params: r.params || null,
+            data: b64ToBytes(r.data)
+          });
+        })).then(function () {
+          renderHist();
+          setStatus(tr('histImported', { n: data.edits.length }), 'ok');
+        }).catch(function (e) { setStatus(tr('errHist') + (e && e.message ? e.message : e), 'error'); });
+      } catch (e) { setStatus(tr('histImportErr') + e.message, 'error'); }
+    };
+    rd.onerror = function () { setStatus(tr('histImportErr'), 'error'); };
+    rd.readAsText(file);
+  }
+
+  $('histExport').addEventListener('click', exportHist);
+  $('histImport').addEventListener('click', function () { $('histImportInput').click(); });
+  $('histImportInput').addEventListener('change', function () {
+    if ($('histImportInput').files.length) importHistFile($('histImportInput').files[0]);
+  });
   $('histClear').addEventListener('click', function () {
     window.HBRDB.clearEdits().then(function () {
       renderHist();
@@ -1228,6 +1316,13 @@
     }).then(function (buf) {
       loadBytes(new Uint8Array(buf), sample.split('/').pop() || 'sample.hbr2');
     }).catch(function (e) { setErr('sample: ' + (e && e.message ? e.message : e)); });
+  }
+  var histId = qp.get('hist');
+  if (histId && !sample && window.HBRDB) {
+    window.HBRDB.getEdit(histId).then(function (rec) {
+      if (!rec || !rec.data) { setErr(tr('errNoHist')); return; }
+      try { loadBytes(rec.data, rec.name); } catch (e) { setErr(e.message); }
+    }).catch(function () { setErr(tr('errNoHist')); });
   }
 })();
 </script>
