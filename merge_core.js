@@ -389,7 +389,7 @@
     };
   }
 
-  return { mergeFiles, trimReplay };
+  return { mergeFiles, trimReplay, cutParts, analyzeReplay };
 
   // ---------- recorte de replay ----------
   // Recorta un .hbr2 al intervalo de frames [start, end) (frames de replay, 30 fps).
@@ -470,6 +470,140 @@
     dv2.setUint32(0, 0x48425232, false);
     dv2.setUint32(4, 3, false);
     dv2.setUint32(8, end - start, false);
+    out.set(compressed, 12);
+    return out;
+  }
+
+  // ---------- análisis de replay ----------
+  // Detecta las "partes" de la grabación: cada acción bb (MatchStart / kickoff, id 7)
+  // marca el inicio de un período (1ª parte, 2ª parte, tiempo extra...). Devuelve los
+  // intervalos de frame [start, end) de cada parte, los marcadores WOM (goles etc.) y
+  // la duración total. Solo lee el flujo de acciones; no simula ni re-serializa.
+  function analyzeReplay(b) {
+    if (!b || b.length < 12) throw new Error('archivo demasiado corto');
+    const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    if (dv.getUint32(0, false) !== 0x48425232) throw new Error('no es un .hbr2');
+    if (dv.getUint32(4, false) !== 3) throw new Error('versión de replay no soportada (se espera 3)');
+    const dur = dv.getUint32(8, false);
+    const dec = pako.inflateRaw(b.subarray(12));
+    const wom = parseWom(dec);
+    const markers = [];
+    let c = 0;
+    for (const [d, t] of wom.entries) { c += d; markers.push({ frame: c, kind: t }); }
+    const kicks = [];
+    const rep = makeRep(b);
+    while (rep.ug) {
+      const act = rep.ug;
+      if (act.constructor.name === 'bb') kicks.push(rep.vg);
+      rep.dm();
+    }
+    const parts = [];
+    for (let i = 0; i < kicks.length; i++) {
+      parts.push({ start: kicks[i], end: (i + 1 < kicks.length) ? kicks[i + 1] : dur });
+    }
+    return { dur, parts, markers };
+  }
+
+  // ---------- recorte por partes ----------
+  // Elimina los intervalos de frame [start, end) dados (p. ej. partes/halves completos)
+  // y vuelve a enganchar el flujo restante con los deltas recomprimidos. Se conserva el
+  // snapshot de sala del frame 0 (limitación del formato, igual que trimReplay) y se
+  // descartan las acciones y los marcadores WOM de los tramos eliminados. Devuelve un
+  // .hbr2 válido con duración dur - Σ(longitudes).
+  function cutParts(b, removals) {
+    if (!b || b.length < 12) throw new Error('archivo demasiado corto');
+    const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    if (dv.getUint32(0, false) !== 0x48425232) throw new Error('no es un .hbr2');
+    if (dv.getUint32(4, false) !== 3) throw new Error('versión de replay no soportada (se espera 3)');
+    const dur = dv.getUint32(8, false);
+    // Normalizar: clamp a [0,dur], descartar vacíos, ordenar y fusionar solapes.
+    const rs = [];
+    for (const r of (removals || [])) {
+      const s = Math.max(0, Math.floor(r[0] | 0));
+      const e = Math.min(dur, Math.ceil(r[1] | 0));
+      if (e > s) rs.push([s, e]);
+    }
+    rs.sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    for (const r of rs) {
+      const last = merged[merged.length - 1];
+      if (last && r[0] <= last[1]) { if (r[1] > last[1]) last[1] = r[1]; }
+      else merged.push([r[0], r[1]]);
+    }
+    const removedLen = merged.reduce((t, r) => t + (r[1] - r[0]), 0);
+    const newDur = dur - removedLen;
+    if (newDur <= 0) throw new Error('recorte inválido: no queda ningún frame');
+    if (removedLen === 0) return b;
+    function inside(x) {
+      for (const r of merged) { if (x >= r[0] && x < r[1]) return true; if (x < r[0]) break; }
+      return false;
+    }
+    function offset(x) {
+      let o = 0;
+      for (const r of merged) { if (r[1] <= x) o += r[1] - r[0]; else break; }
+      return o;
+    }
+    const dec = pako.inflateRaw(b.subarray(12));
+    const wom = parseWom(dec);
+
+    // Leer todas las acciones del original (pos absoluta + bytes serializados).
+    const rep = makeRep(b);
+    const acts = [];
+    let prevAbsOrig = 0;
+    let totalAct = 0;
+    while (rep.ug) {
+      const abs = rep.vg;
+      const act = rep.ug;
+      const delta = abs - prevAbsOrig;
+      const ww = A.ka(64);
+      ww.pb(delta);
+      ww.Xb(act.P);
+      p.Cj(act, ww);
+      const rec = ww.Wb();
+      totalAct += rec.length;
+      acts.push({ abs: abs, rec: rec, dlen: varintLen(delta) });
+      prevAbsOrig = abs;
+      rep.dm();
+    }
+    const snapshotLen = rep.Sc.a - totalAct;
+    if (snapshotLen < 0 || wom.end + snapshotLen > dec.length) {
+      throw new Error('no se pudo localizar el snapshot de sala');
+    }
+
+    // Filtrar acciones de los tramos eliminados y recomprimir deltas en la nueva línea.
+    const newRecs = [];
+    let prevNew = 0;
+    let first = true;
+    for (const a of acts) {
+      if (inside(a.abs)) continue;
+      const nAbs = a.abs - offset(a.abs);
+      if (nAbs >= newDur) continue;
+      const nd = first ? nAbs : nAbs - prevNew;
+      first = false;
+      prevNew = nAbs;
+      const body = a.rec.subarray(a.dlen);
+      newRecs.push(concatBytes([varintBytes(nd), body]));
+    }
+
+    // Marcadores WOM fuera de los tramos eliminados, desplazados a la nueva línea.
+    let c = 0;
+    const markers = [];
+    for (const [d, t] of wom.entries) {
+      c += d;
+      if (inside(c)) continue;
+      const m = c - offset(c);
+      if (m >= newDur) continue;
+      markers.push([m, t]);
+    }
+
+    const snapshot = dec.subarray(wom.end, wom.end + snapshotLen);
+    const newDec = concatBytes([buildWomSingle(markers), snapshot].concat(newRecs));
+    const compressed = pako.deflateRaw(newDec);
+    const out = new Uint8Array(12 + compressed.length);
+    const dv2 = new DataView(out.buffer);
+    dv2.setUint32(0, 0x48425232, false);
+    dv2.setUint32(4, 3, false);
+    dv2.setUint32(8, newDur, false);
     out.set(compressed, 12);
     return out;
   }

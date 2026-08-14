@@ -12,7 +12,7 @@ let _now = 0;
 
 require(path.join(DIR, 'hbr2_env.js'));
 const mergeCore = require(path.join(DIR, 'merge_core.js'));
-const { trimReplay } = mergeCore;
+const { trimReplay, cutParts, analyzeReplay } = mergeCore;
 const game = global.game;
 global.window.performance.now = function () { return _now; };
 const _log = console.log.bind(console);
@@ -122,6 +122,128 @@ if (tail) {
 if (mid) {
   const m2 = trimReplay(mid, 0, readHeader(mid).dur);
   ok(m2 === mid, 're-recortar el medio a rango completo devuelve la misma referencia');
+}
+
+// ---------- Fase 2b: análisis de partes y recorte por partes ----------
+function parityAt(origRep, cutRep, cutK, mapK) {
+  advanceTo(origRep, mapK(cutK));
+  advanceTo(cutRep, cutK);
+  return { a: snap(origRep.T), b0: snap(cutRep.T) };
+}
+function checkCut(name, src, removals, opts) {
+  console.log('\n— ' + name + ' (eliminar ' + JSON.stringify(removals) + ') —');
+  let out;
+  try { out = cutParts(src, removals); }
+  catch (e) { ok(false, 'cutParts sin excepción: ' + e.message); return null; }
+  const oh = readHeader(out);
+  const srcH = readHeader(src);
+  const removedLen = removals.reduce((t, r) => t + (r[1] - r[0]), 0);
+  const len = srcH.dur - removedLen;
+  ok(oh.magic === 0x48425232, 'magic HBR2');
+  ok(oh.ver === 3, 'versión 3');
+  ok(oh.dur === len, 'duración = ' + len + ' (got ' + oh.dur + ')');
+  const rep = makeRep(out);
+  ok(rep.Bf === len, 'el motor cargado lee Bf = ' + len);
+  ok(actionFrames(rep).every(f => f >= 0 && f < len), 'todas las acciones en [0, ' + len + ')');
+  rep.Ub = 0; rep.hi = 0;
+  let crashed = false;
+  for (let k = 1; k <= len; k++) { try { advanceTo(rep, k); } catch (e) { crashed = true; break; } }
+  ok(!crashed, 'el motor avanza los ' + len + ' frames sin error');
+  if (opts && opts.lockstep === true && !crashed) {
+    // La paridad lockstep solo es comparable antes del primer tramo eliminado:
+    // al saltarse un tramo en medio, la física continúa desde el estado previo
+    // (comportamiento esperado del editor), así que el estado diverge en la costura.
+    const until = Math.min.apply(null, removals.map(r => r[0]));
+    const mapK = (k) => { let o = k; for (const r of removals) { if (o >= r[0]) o += r[1] - r[0]; } return o; };
+    const orep = makeRep(src);
+    const crep = makeRep(out);
+    const sampleK = [1, 2, 3, 5, 10, 50, 200, 500, 1000, 2000, until - 1].filter(k => k >= 1 && k < until);
+    let mismatches = 0;
+    for (let k = 1; k < until; k++) {
+      const { a, b0 } = parityAt(orep, crep, k, mapK);
+      if (sampleK.indexOf(k) !== -1 && JSON.stringify(a) !== JSON.stringify(b0)) {
+        mismatches++;
+        if (mismatches <= 3) { console.log('    mismatch frame ' + k + ' (orig ' + mapK(k) + ')'); console.log('    cut  : ' + JSON.stringify(a)); console.log('    orig : ' + JSON.stringify(b0)); }
+      }
+    }
+    ok(mismatches === 0, 'paridad lockstep pre-corte en ' + sampleK.length + ' frames muestreados');
+  }
+  return out;
+}
+
+console.log('\n— Análisis de partes (analyzeReplay) —');
+const an = analyzeReplay(b);
+ok(an.dur === hdr.dur, 'analyzeReplay.dur = ' + hdr.dur);
+ok(Array.isArray(an.parts) && Array.isArray(an.markers), 'devuelve parts[] y markers[]');
+ok(an.parts.every(p => p.start >= 0 && p.end <= hdr.dur && p.start < p.end), 'partes con rangos válidos');
+ok(an.parts.length === 1, 'el sample tiene 1 parte (bb detectado)');
+if (an.parts.length === 1) {
+  ok(an.parts[0].start > 0, 'la parte arranca en el kickoff (frame ' + an.parts[0].start + ')');
+  ok(an.parts[0].end === hdr.dur, 'la parte llega hasta el final de la rec');
+}
+ok(an.markers.length === 0, 'el sample no tiene marcadores WOM');
+
+console.log('\n— cutParts: sin eliminaciones devuelve el mismo buffer —');
+ok(cutParts(b, []) === b, 'cutParts(b, []) === b (sin copia)');
+
+console.log('\n— cutParts: recorte de cabeza y cola byte-idénticos a trimReplay —');
+{
+  const keepHead = cutParts(b, [[4000, hdr.dur]]);
+  const tHead = trimReplay(b, 0, 4000);
+  ok(keepHead.length === tHead.length && keepHead.every((v, i) => v === tHead[i]),
+    'quitar cola [4000,dur) == trimReplay(b,0,4000) byte a byte');
+
+  const dropHead = cutParts(b, [[0, 4000]]);
+  const tDrop = trimReplay(b, 4000, hdr.dur);
+  ok(dropHead.length === tDrop.length && dropHead.every((v, i) => v === tDrop[i]),
+    'quitar cabeza [0,4000) == trimReplay(b,4000,dur) byte a byte');
+}
+
+console.log('\n— cutParts: eliminar un tramo del medio —');
+checkCut('Eliminar medio [1500, 5000)', b, [[1500, 5000]], { lockstep: true });
+
+console.log('\n— cutParts: eliminar cola [2500, dur) —');
+checkCut('Eliminar cola', b, [[2500, hdr.dur]], { lockstep: true });
+
+console.log('\n— cutParts: eliminar dos tramos (medio + cola) —');
+checkCut('Eliminar [1000, 2000) y [3000, 5000)', b, [[1000, 2000], [3000, 5000]], { lockstep: true });
+
+console.log('\n— cutParts: eliminaciones solapadas se fusionan —');
+{
+  const via = cutParts(b, [[500, 2000], [1500, 3000]]);
+  ok(readHeader(via).dur === hdr.dur - 2500, 'duración = ' + (hdr.dur - 2500) + ' (got ' + readHeader(via).dur + ')');
+}
+
+console.log('\n— cutParts: rango inválido lanza error —');
+try { cutParts(b, [[0, hdr.dur]]); ok(false, 'debería lanzar error'); }
+catch (e) { ok(true, 'lanza error: ' + e.message); }
+
+// ---------- Fase 2c: rec multi-parte real ----------
+const mpPath = path.join(DIR, 'samples', 'multipart.hbr2');
+if (fs.existsSync(mpPath)) {
+  const mp = new Uint8Array(fs.readFileSync(mpPath));
+  const mph = readHeader(mp);
+  console.log('\n— Multi-parte: ' + path.basename(mpPath) + ' | ' + mp.length + ' bytes | ' + mph.dur + ' frames —');
+  const an = analyzeReplay(mp);
+  ok(an.dur === mph.dur, 'analyzeReplay.dur = ' + mph.dur);
+  ok(an.parts.length === 3, 'detecta 3 partes (got ' + an.parts.length + ')');
+  ok(an.parts[0].start === 1904 && an.parts[0].end === 45840, 'parte 1 = [1904, 45840)');
+  ok(an.parts[1].start === 45840 && an.parts[1].end === 50615, 'parte 2 = [45840, 50615)');
+  ok(an.parts[2].start === 50615 && an.parts[2].end === mph.dur, 'parte 3 = [50615, dur)');
+  ok(an.markers.length === 10, '10 marcadores WOM');
+
+  const second = an.parts[1];
+  const removed = second.end - second.start;
+  const mpCut = cutParts(mp, [[second.start, second.end]]);
+  const mc = readHeader(mpCut);
+  ok(mc.dur === mph.dur - removed, 'quitar parte 2 → dur ' + (mph.dur - removed) + ' (got ' + mc.dur + ')');
+  const mrep = makeRep(mpCut);
+  ok(mrep.Bf === mc.dur, 'el motor carga el resultado (Bf = ' + mc.dur + ')');
+  ok(actionFrames(mrep).every(f => f >= 0 && f < mc.dur), 'todas las acciones en [0, ' + mc.dur + ')');
+  const an2 = analyzeReplay(mpCut);
+  ok(an2.parts.length === 2, 'reanálisis: quedan 2 partes');
+  ok(an2.parts[0].start === 1904 && an2.parts[0].end === 45840, 'parte restante 1 = [1904, 45840)');
+  ok(an2.parts[1].start === 45840 && an2.parts[1].end === mc.dur, 'parte restante 2 = [45840, dur)');
 }
 
 console.log('\n' + (fails === 0 ? 'RESULTADO: PASS' : 'RESULTADO: FAIL (' + fails + ' de ' + checks + ')'));
