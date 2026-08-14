@@ -24,6 +24,22 @@
   #langBtn { background:var(--panel); color:var(--txt); border:1px solid var(--line);
     border-radius:8px; padding:8px 14px; font-size:13px; cursor:pointer; font-weight:600; }
   #langBtn:hover { border-color:var(--acc); }
+  #histBtn { display:inline-flex; align-items:center; gap:6px; background:var(--panel); color:var(--txt);
+    border:1px solid var(--line); border-radius:8px; padding:8px 14px; font-size:13px; cursor:pointer;
+    font-weight:600; font-family:inherit; }
+  #histBtn:hover { border-color:var(--acc); }
+  #histBtn svg { width:15px; height:15px; flex:none; }
+  .hist-row { display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--line);
+    font-size:13px; }
+  .hist-row:last-child { border-bottom:none; }
+  .hist-op { font-size:11px; font-weight:700; color:var(--acc); background:rgba(79,140,255,.12);
+    border:1px solid rgba(79,140,255,.35); border-radius:6px; padding:2px 7px; flex:none; }
+  .hist-open { flex:1; color:var(--acc); background:none; border:none; cursor:pointer; text-align:left;
+    font-family:inherit; font-size:13px; padding:0; min-width:0; word-break:break-all; }
+  .hist-open:hover { text-decoration:underline; }
+  .hist-meta { color:var(--mut); white-space:nowrap; font-size:12px; font-variant-numeric:tabular-nums; }
+  .hist-empty { color:var(--mut); font-size:13px; padding:6px 0; }
+  @media (max-width:640px) { .hist-row { flex-wrap:wrap; } .hist-meta { width:100%; } }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:8px;
     padding:18px; margin-bottom:16px; }
   .card h2 { font-size:15px; margin:0 0 12px; color:var(--txt); font-weight:600; }
@@ -201,8 +217,21 @@
       <p class="sub" data-i18n="sub">Recorta grabaciones .hbr2 de HaxBall: selecciona inicio y fin, previsualiza con el motor y guarda el recorte.</p>
     </div>
     <div class="spacer"></div>
+    <button id="histBtn" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
+      <span data-i18n="histBtn">Historial</span>
+    </button>
     <button id="langBtn">EN</button>
   </header>
+
+  <div class="card hidden" id="histcard">
+    <div class="actions">
+      <h2 data-i18n="histTitle">Historial de recs modificadas</h2>
+      <div class="spacer"></div>
+      <button class="btn small" id="histClear" type="button" data-i18n="histClear">Vaciar</button>
+    </div>
+    <div id="histList"></div>
+  </div>
 
   <div id="warnbar"></div>
   <div id="err"></div>
@@ -284,6 +313,7 @@
 
 <script src="vendor/pako-jszip.min.js"></script>
 <script src="game-min_patched.js"></script>
+<script src="db.js"></script>
 <script>
 (function () {
   'use strict';
@@ -327,6 +357,18 @@
       chatShow: 'Mostrar chat',
       fullscreen: 'Pantalla completa',
       fullscreenExit: 'Salir de pantalla completa',
+      histBtn: 'Historial',
+      histTitle: 'Historial de recs modificadas',
+      histEmpty: 'Todavía no hay recs guardadas en este navegador.',
+      histOpTrim: 'Recorte',
+      histOpParts: 'Partes',
+      histOpen: 'Abrir',
+      histDownload: 'Descargar',
+      histDelete: 'Borrar',
+      histClear: 'Vaciar',
+      histCleared: 'Historial vaciado.',
+      histDeleted: 'Borrada: {name}',
+      errHist: 'error al guardar el historial: ',
       errMagic: 'no es un .hbr2 (magic HBR2 no encontrado)',
       errVer: 'versión de replay no soportada: {v} (se espera 3)',
       errRange: 'recorte inválido: el final debe ser mayor que el inicio',
@@ -375,6 +417,18 @@
       chatShow: 'Show chat',
       fullscreen: 'Fullscreen',
       fullscreenExit: 'Exit fullscreen',
+      histBtn: 'History',
+      histTitle: 'Edited recordings history',
+      histEmpty: 'No edited recordings saved in this browser yet.',
+      histOpTrim: 'Trim',
+      histOpParts: 'Parts',
+      histOpen: 'Open',
+      histDownload: 'Download',
+      histDelete: 'Delete',
+      histClear: 'Clear',
+      histCleared: 'History cleared.',
+      histDeleted: 'Deleted: {name}',
+      errHist: 'error saving history: ',
       errMagic: 'not an .hbr2 (HBR2 magic not found)',
       errVer: 'unsupported replay version: {v} (expected 3)',
       errRange: 'invalid trim: the end must be greater than the start',
@@ -757,13 +811,72 @@
     updatePartsUI();
   }
 
-  function downloadParts() {
-    var blob = new Blob([state.partsResult], { type: 'application/octet-stream' });
+  function download(name, bytes) {
+    var blob = new Blob([bytes], { type: 'application/octet-stream' });
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = state.partsResultName;
+    a.download = name;
     a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+  }
+
+  function saveEdit(op, data, srcName, name, params) {
+    if (!window.HBRDB) return;
+    window.HBRDB.saveEdit({
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+      createdAt: Date.now(),
+      op: op, srcName: srcName, name: name,
+      size: data.length, dur: readHeader(data).dur, params: params, data: data
+    }).then(renderHist).catch(function (e) { setStatus(tr('errHist') + (e && e.message ? e.message : e), 'error'); });
+  }
+
+  function renderHist() {
+    if (!window.HBRDB) return;
+    window.HBRDB.listEdits().then(function (list) {
+      var box = $('histList');
+      box.innerHTML = '';
+      if (!list.length) {
+        var e = document.createElement('div'); e.className = 'hist-empty'; e.textContent = tr('histEmpty');
+        box.appendChild(e); return;
+      }
+      list.forEach(function (r) {
+        var row = document.createElement('div'); row.className = 'hist-row';
+        var op = document.createElement('span'); op.className = 'hist-op';
+        op.textContent = tr(r.op === 'parts' ? 'histOpParts' : 'histOpTrim');
+        var open = document.createElement('button'); open.type = 'button'; open.className = 'hist-open';
+        open.title = tr('histOpen');
+        open.textContent = r.srcName + ' → ' + r.name;
+        var meta = document.createElement('span'); meta.className = 'hist-meta';
+        meta.textContent = fmtTime(r.dur) + ' · ' + fmt(r.size) + ' · ' + new Date(r.createdAt).toLocaleString();
+        var dl = document.createElement('button'); dl.type = 'button'; dl.className = 'btn small'; dl.textContent = tr('histDownload');
+        var del = document.createElement('button'); del.type = 'button'; del.className = 'btn small'; del.textContent = tr('histDelete');
+        dl.addEventListener('click', function () {
+          window.HBRDB.getEdit(r.id).then(function (rec) {
+            if (!rec || !rec.data) return;
+            download(rec.name, rec.data);
+          }).catch(function () {});
+        });
+        del.addEventListener('click', function () {
+          window.HBRDB.deleteEdit(r.id).then(function () {
+            renderHist();
+          }).catch(function () {});
+        });
+        open.addEventListener('click', function () {
+          window.HBRDB.getEdit(r.id).then(function (rec) {
+            if (!rec || !rec.data) return;
+            $('histcard').classList.add('hidden');
+            try { loadBytes(rec.data, rec.name); } catch (e) { setStatus(e.message, 'error'); }
+          }).catch(function () {});
+        });
+        row.appendChild(op); row.appendChild(open); row.appendChild(meta); row.appendChild(dl); row.appendChild(del);
+        box.appendChild(row);
+      });
+    }).catch(function () {});
+  }
+
+  function downloadParts() {
+    download(state.partsResultName, state.partsResult);
+    saveEdit('parts', state.partsResult, state.name, state.partsResultName, null);
     setStatus(tr('statusSaved', { name: state.partsResultName }) + ' · ' + fmt(state.partsResult.length), 'ok');
   }
 
@@ -852,12 +965,8 @@
   }
 
   function downloadTrim() {
-    var blob = new Blob([state.trimmed], { type: 'application/octet-stream' });
-    var a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = state.trimmedName;
-    a.click();
-    setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+    download(state.trimmedName, state.trimmed);
+    saveEdit('trim', state.trimmed, state.name, state.trimmedName, { start: state.start, end: state.end });
     setStatus(tr('statusSaved', { name: state.trimmedName }) + ' · ' + fmt(state.trimmed.length), 'ok');
   }
 
@@ -884,6 +993,26 @@
   });
   $('btnPartsSave').addEventListener('click', function () {
     if (state.partsResult) downloadParts();
+  });
+
+  $('histBtn').addEventListener('click', function () {
+    var card = $('histcard');
+    var show = card.classList.contains('hidden');
+    card.classList.toggle('hidden', !show);
+    if (show) renderHist();
+  });
+  $('histClear').addEventListener('click', function () {
+    window.HBRDB.clearEdits().then(function () {
+      renderHist();
+      setStatus(tr('histCleared'), 'ok');
+    }).catch(function () {});
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'h' && e.key !== 'H') return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    var t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+    $('histBtn').click();
   });
 
   if (location.protocol === 'file:') {
