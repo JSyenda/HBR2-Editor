@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<script>try { if (localStorage.getItem('hbr2.theme') === 'light') document.documentElement.classList.add('theme-light'); } catch (e) {}</script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Editor de recs HBR2</title>
@@ -12,6 +13,16 @@
   :root {
     --bg:#0f1420; --panel:#1a2233; --panel2:#202a40; --line:#2c3a55;
     --txt:#dbe4f4; --mut:#8ba0c0; --acc:#4f8cff; --ok:#2ecc71; --bad:#ff5a5a; --warn:#f1c40f;
+    --bg2:#0b0e14; --bar:#151b29; --bar2:#0d1119; --hov:#2a3550; --dis:#161b26;
+    --barbg:#1c2434; --barbg2:#273349; --in:#0f1420; --lsth:#222c40;
+    --pop:rgba(11,14,20,.65); --chat:rgba(15,20,32,.88);
+  }
+  html.theme-light {
+    --bg:#f3f5fa; --panel:#ffffff; --panel2:#e9edf5; --line:#d5dce8; --txt:#1d2637; --mut:#5a6b8a;
+    --acc:#2f6fe4; --ok:#1f9d55; --bad:#e5484d; --warn:#a86e00;
+    --bg2:#dde3ee; --bar:#ffffff; --bar2:#eef1f7; --hov:#e2e8f3; --dis:#eef1f6;
+    --barbg:#dbe2ee; --barbg2:#cdd6e6; --in:#f3f5fa; --lsth:#e6ecf6;
+    --pop:rgba(20,30,50,.5); --chat:rgba(255,255,255,.92);
   }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--txt);
@@ -29,6 +40,16 @@
     font-weight:600; font-family:inherit; }
   #histBtn:hover { border-color:var(--acc); }
   #histBtn svg { width:15px; height:15px; flex:none; }
+  #themeBtn { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px;
+    background:var(--panel); color:var(--txt); border:1px solid var(--line); border-radius:8px;
+    cursor:pointer; padding:0; }
+  #themeBtn:hover { border-color:var(--acc); }
+  #themeBtn svg { width:16px; height:16px; }
+  #themeBtn .ic-light { display:none; }
+  html.theme-light #themeBtn .ic-dark { display:none; }
+  html.theme-light #themeBtn .ic-light { display:block; }
+  .ks { color:var(--mut); font-size:12px; margin-bottom:16px; }
+  .ks b { color:var(--txt); font-weight:600; }
   .hist-row { display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--line);
     font-size:13px; }
   .hist-row:last-child { border-bottom:none; }
@@ -57,7 +78,7 @@
   .trimcol label { display:block; font-size:13px; color:var(--mut); font-weight:600; margin-bottom:6px; }
   .trimcol input[type=range] { width:100%; margin:4px 0; accent-color:var(--acc); }
   .trimcol .numrow { display:flex; align-items:center; gap:8px; }
-  .trimcol input[type=number] { background:#0f1420; border:1px solid var(--line); color:var(--txt);
+  .trimcol input[type=number] { background:var(--in); border:1px solid var(--line); color:var(--txt);
     border-radius:6px; padding:6px 8px; font-size:13px; width:120px; font-variant-numeric:tabular-nums; }
   .trimcol input[type=number]:focus { border-color:var(--acc); outline:none; }
   .trimcol .hint { font-size:12px; color:var(--mut); margin-top:4px; font-variant-numeric:tabular-nums; }
@@ -87,7 +108,7 @@
   #partsStatus.ok { color:var(--ok); font-weight:600; }
   #partsStatus.error { color:var(--bad); font-weight:600; }
   .note { background:rgba(241,196,15,.08); border:1px solid var(--warn); border-radius:8px;
-    padding:10px 14px; font-size:13px; margin-top:12px; display:none; color:#f7e7b0; }
+    padding:10px 14px; font-size:13px; margin-top:12px; display:none; color:var(--warn); }
   #status { min-height:20px; font-size:13px; margin-top:10px; }
   #status.running { color:var(--warn); }
   #status.ok { color:var(--ok); font-weight:600; }
@@ -100,7 +121,7 @@
   #playerbar .badge { font-size:12px; font-weight:600; padding:3px 8px; border-radius:6px;
     border:1px solid var(--acc); color:var(--acc); }
   #player { position:relative; z-index:0; width:100%; height:min(68vh, calc(100vw * 9/17));
-    background:#0b0e14; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+    background:var(--bg2); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
   #player:fullscreen { border-radius:0; border:none; }
   #err { background:#2a1216; border:1px solid var(--bad); color:#ffd7d7; border-radius:8px;
     padding:12px 16px; font-size:13px; white-space:pre-wrap; display:none; margin-bottom:16px; }
@@ -108,40 +129,40 @@
 
   /* ---- re-tinteado del motor: mismo esquema que el player del merger ---- */
   .game-state-view .bar-container { z-index:1; }
-  .game-state-view .bar { background:#151b29; border:1px solid var(--line); border-top:none;
+  .game-state-view .bar { background:var(--bar); border:1px solid var(--line); border-top:none;
     border-radius:0 0 5px 5px; }
   .game-state-view .bar .score { color:var(--txt); }
   .game-state-view .bar .teamicon.blue { background:#4f8cff; }
   .game-state-view .bar .teamicon.red { background:#ff5a5a; }
-  .game-state-view .bar [data-hook=timer] { color:#b9c7dd; }
+  .game-state-view .bar [data-hook=timer] { color:var(--mut); }
   .game-state-view .fps-limit-fix { display:none; }
 
   /* --- botones superiores (sonido / menú / ajustes) --- */
-  .game-view>.buttons { background:#151b29; border-bottom-left-radius:5px;
+  .game-view>.buttons { background:var(--bar); border-bottom-left-radius:5px;
     border-bottom:1px solid var(--line); border-left:1px solid var(--line); }
   .game-view>.buttons button { background:var(--panel2); border:1px solid var(--line); color:var(--txt); }
-  .game-view>.buttons button:hover { background:#2a3550; border-color:var(--acc); }
-  .game-view>.buttons button:active { background:#151b29; }
-  .game-view>.buttons button:disabled { background:#161b26; border-color:var(--line); }
+  .game-view>.buttons button:hover { background:var(--hov); border-color:var(--acc); }
+  .game-view>.buttons button:active { background:var(--bar); }
+  .game-view>.buttons button:disabled { background:var(--dis); border-color:var(--line); }
   .game-view>.buttons button svg { display:block; }
   .sound-button-container .sound-slider { background:var(--panel); border:1px solid var(--line); }
   .game-view.chat-hidden .chatbox-view { display:none; }
 
   /* --- barra de control de reproducción (inferior) --- */
-  .replay-controls-view { background:#0d1119; border-top:1px solid var(--line); color:var(--txt);
+  .replay-controls-view { background:var(--bar2); border-top:1px solid var(--line); color:var(--txt);
     height:52px; }
   .replay-controls-view button { background:var(--panel2); border:1px solid var(--line); color:var(--txt); }
-  .replay-controls-view button:hover:not(:disabled) { background:#2a3550; border-color:var(--acc); }
-  .replay-controls-view button:active { background:#151b29; }
-  .replay-controls-view button:disabled { background:#161b26; border-color:var(--line); }
+  .replay-controls-view button:hover:not(:disabled) { background:var(--hov); border-color:var(--acc); }
+  .replay-controls-view button:active { background:var(--bar); }
+  .replay-controls-view button:disabled { background:var(--dis); border-color:var(--line); }
   .replay-controls-view [data-hook=spd] { color:var(--txt); min-width:40px; }
   .replay-controls-view [data-hook=time] { color:var(--mut); font-variant-numeric:tabular-nums; min-width:50px; }
   .replay-controls-view .timebar { height:52px; }
-  .replay-controls-view .timebar .barbg { background:#1c2434; height:10px; border-radius:5px; }
+  .replay-controls-view .timebar .barbg { background:var(--barbg); height:10px; border-radius:5px; }
   .replay-controls-view .timebar .bar { background:var(--acc); border-radius:5px; }
-  .replay-controls-view .timebar .timetooltip { background:#0d1119; border:1px solid var(--line); color:var(--txt); }
+  .replay-controls-view .timebar .timetooltip { background:var(--bar2); border:1px solid var(--line); color:var(--txt); }
   .replay-controls-view .timebar .marker { background:rgba(139,160,192,.6); height:10px; }
-  .replay-controls-view .timebar:hover .barbg { background:#273349; }
+  .replay-controls-view .timebar:hover .barbg { background:var(--barbg2); }
   .replay-controls-view .timebar .marker.k1 { background:#2b58b8; }
   .replay-controls-view .timebar .marker.k2 { background:#ff5a5a; }
   .replay-controls-view .timebar .trim-marker { width:3px; }
@@ -152,31 +173,31 @@
   .dialog, .room-view>.container { background:var(--panel); border:1px solid var(--line); }
   .dialog>h1, .room-view>.container>h1 { border-bottom-color:var(--acc); color:var(--txt); }
   .dialog button, .room-view>.container button { background:var(--panel2); border:1px solid var(--line); color:var(--txt); }
-  .dialog button:hover, .room-view>.container button:hover { background:#2a3550; border-color:var(--acc); }
-  .dialog button:active, .room-view>.container button:active { background:#151b29; }
-  .dialog button:disabled, .room-view>.container button:disabled { background:#161b26; border-color:var(--line); }
-  .dialog input:not([type=range]), .room-view>.container input:not([type=range]) { background:#0f1420; border-color:var(--line); color:var(--txt); }
+  .dialog button:hover, .room-view>.container button:hover { background:var(--hov); border-color:var(--acc); }
+  .dialog button:active, .room-view>.container button:active { background:var(--bar); }
+  .dialog button:disabled, .room-view>.container button:disabled { background:var(--dis); border-color:var(--line); }
+  .dialog input:not([type=range]), .room-view>.container input:not([type=range]) { background:var(--in); border-color:var(--line); color:var(--txt); }
   .dialog input:focus:not([type=range]), .room-view>.container input:focus:not([type=range]) { border-color:var(--acc); }
   .dialog .label-input, .room-view>.container .label-input { background:var(--panel2); }
-  .dialog select, .room-view>.container select { background:#0f1420; border-color:var(--line); color:var(--txt); }
+  .dialog select, .room-view>.container select { background:var(--in); border-color:var(--line); color:var(--txt); }
   .dialog select:hover:not(:disabled), .room-view>.container select:hover:not(:disabled) { border-color:var(--acc); }
   .room-view button { background:var(--panel2); border:1px solid var(--line); color:var(--txt); }
-  .room-view button:hover { background:#2a3550; border-color:var(--acc); }
-  .room-view button:active { background:#151b29; }
-  .room-view button:disabled { background:#161b26; border-color:var(--line); }
-  .room-view>.container>.teams .player-list-view .list { background:#0f1420; }
-  .room-view .player-list-item:hover { background:#222c40; }
+  .room-view button:hover { background:var(--hov); border-color:var(--acc); }
+  .room-view button:active { background:var(--bar); }
+  .room-view button:disabled { background:var(--dis); border-color:var(--line); }
+  .room-view>.container>.teams .player-list-view .list { background:var(--in); }
+  .room-view .player-list-item:hover { background:var(--lsth); }
   .room-view>.container>.teams .player-list-view.t-red button[data-hook=join-btn] { color:#ff8686; }
   .room-view>.container>.teams .player-list-view.t-blue button[data-hook=join-btn] { color:#b7b7ff; }
 
   /* --- popups / overlays / chat --- */
-  .game-view>[data-hook=popups] { background:rgba(11,14,20,.65); }
-  .game-state-view.restricted { background:#151b29; }
-  .chatbox-view-contents { background:rgba(15,20,32,.88); }
-  .chatbox-view-contents>.input input[type=text] { background:#0f1420; color:var(--txt); }
+  .game-view>[data-hook=popups] { background:var(--pop); }
+  .game-state-view.restricted { background:var(--bar); }
+  .chatbox-view-contents { background:var(--chat); }
+  .chatbox-view-contents>.input input[type=text] { background:var(--in); color:var(--txt); }
   .chatbox-view-contents>.input input[type=text]:focus { border:1px solid var(--acc); padding:0 7px; }
   .chatbox-view-contents>.input button { background:var(--panel2); border:1px solid var(--line); color:var(--txt); }
-  .chatbox-view-contents>.input button:hover { background:#2a3550; border-color:var(--acc); }
+  .chatbox-view-contents>.input button:hover { background:var(--hov); border-color:var(--acc); }
 
   /* --- responsive del reproductor --- */
   @media (max-width:1000px) {
@@ -217,12 +238,18 @@
       <p class="sub" data-i18n="sub">Recorta grabaciones .hbr2 de HaxBall: selecciona inicio y fin, previsualiza con el motor y guarda el recorte.</p>
     </div>
     <div class="spacer"></div>
+    <button id="themeBtn" type="button" title="Tema">
+      <svg class="ic-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg class="ic-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </button>
     <button id="histBtn" type="button">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
       <span data-i18n="histBtn">Historial</span>
     </button>
     <button id="langBtn">EN</button>
   </header>
+
+  <div class="ks" data-i18n="ks">Atajos: <b>P</b> previsualizar · <b>S</b> guardar · <b>O</b> original · <b>T</b> tema · <b>H</b> historial · <b>Esc</b> cerrar</div>
 
   <div class="card hidden" id="histcard">
     <div class="actions">
@@ -369,6 +396,10 @@
       histCleared: 'Historial vaciado.',
       histDeleted: 'Borrada: {name}',
       errHist: 'error al guardar el historial: ',
+      copyDone: 'Enlace copiado al portapapeles',
+      copyFail: 'No se pudo copiar el enlace',
+      themeTitle: 'Cambiar tema (T)',
+      ks: 'Atajos: <b>P</b> previsualizar · <b>S</b> guardar · <b>O</b> original · <b>T</b> tema · <b>H</b> historial · <b>Esc</b> cerrar',
       errMagic: 'no es un .hbr2 (magic HBR2 no encontrado)',
       errVer: 'versión de replay no soportada: {v} (se espera 3)',
       errRange: 'recorte inválido: el final debe ser mayor que el inicio',
@@ -429,6 +460,10 @@
       histCleared: 'History cleared.',
       histDeleted: 'Deleted: {name}',
       errHist: 'error saving history: ',
+      copyDone: 'Link copied to clipboard',
+      copyFail: 'Could not copy the link',
+      themeTitle: 'Toggle theme (T)',
+      ks: 'Shortcuts: <b>P</b> preview · <b>S</b> save · <b>O</b> original · <b>T</b> theme · <b>H</b> history · <b>Esc</b> close',
       errMagic: 'not an .hbr2 (HBR2 magic not found)',
       errVer: 'unsupported replay version: {v} (expected 3)',
       errRange: 'invalid trim: the end must be greater than the start',
@@ -811,6 +846,27 @@
     updatePartsUI();
   }
 
+  function copyLink() {
+    var text = location.href;
+    function done(ok) {
+      setStatus(ok ? tr('copyDone') : tr('copyFail'), ok ? 'ok' : 'error');
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }).catch(function () { done(false); });
+    } else {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        done(document.execCommand('copy'));
+        document.body.removeChild(ta);
+      } catch (e) { done(false); }
+    }
+  }
+
   function download(name, bytes) {
     var blob = new Blob([bytes], { type: 'application/octet-stream' });
     var a = document.createElement('a');
@@ -1007,12 +1063,39 @@
       setStatus(tr('histCleared'), 'ok');
     }).catch(function () {});
   });
-  document.addEventListener('keydown', function (e) {
-    if (e.key !== 'h' && e.key !== 'H') return;
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
+  function toggleTheme() {
+    var root = document.documentElement;
+    root.classList.toggle('theme-light');
+    try { localStorage.setItem('hbr2.theme', root.classList.contains('theme-light') ? 'light' : 'dark'); } catch (e) {}
+    $('themeBtn').title = tr('themeTitle');
+  }
+  $('themeBtn').addEventListener('click', toggleTheme);
+  $('themeBtn').title = tr('themeTitle');
+
+  function inEditable(e) {
     var t = e.target;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
-    $('histBtn').click();
+    return !!(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable));
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    var k = e.key;
+    if (k === 'Escape') {
+      var card = $('histcard');
+      if (!card.classList.contains('hidden')) card.classList.add('hidden');
+      return;
+    }
+    if (inEditable(e)) return;
+    var h = $('histBtn');
+    if ((k === 'h' || k === 'H') && h) { h.click(); return; }
+    if (k === 'p' || k === 'P') { $('btnPreview').click(); return; }
+    if (k === 's' || k === 'S') { $('btnSave').click(); return; }
+    if (k === 'o' || k === 'O') {
+      var ob = $('btnOriginal');
+      if (ob && !ob.classList.contains('hidden')) ob.click();
+      return;
+    }
+    if (k === 't' || k === 'T') { toggleTheme(); return; }
+    if (k === 'c' || k === 'C') { copyLink(); return; }
   });
 
   if (location.protocol === 'file:') {
