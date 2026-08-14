@@ -93,6 +93,10 @@
   .btn.primary { background:var(--acc); border-color:var(--acc); color:#fff; }
   .btn.primary:hover:not(:disabled) { filter:brightness(1.1); }
   .btn.small { padding:4px 9px; font-size:12px; }
+  .rename-input { background:var(--in); border:1px solid var(--line); color:var(--txt); border-radius:6px;
+    padding:8px 10px; font-size:13px; width:240px; max-width:100%; font-family:inherit;
+    font-variant-numeric:tabular-nums; }
+  .rename-input:focus { border-color:var(--acc); outline:none; }
   .spacer { flex:1; }
   #trimInfo { font-size:13px; color:var(--mut); font-variant-numeric:tabular-nums; }
   .partrow { display:flex; align-items:center; gap:10px; padding:9px 12px; border:1px solid var(--line);
@@ -285,7 +289,9 @@
     <div id="partsList"></div>
     <div class="actions">
       <button class="btn" id="btnPartsRemove" data-i18n="btnPartsRemove" disabled>Quitar seleccionadas</button>
+      <input type="text" id="outNameParts" class="rename-input hidden" spellcheck="false">
       <button class="btn primary hidden" id="btnPartsSave" data-i18n="btnSave">Guardar .hbr2</button>
+      <button class="btn hidden" id="btnReportParts" data-i18n="reportBtn">Mostrar reporte</button>
       <div class="spacer"></div>
       <span id="partsInfo"></span>
     </div>
@@ -318,12 +324,27 @@
     <div class="actions">
       <span id="trimInfo"></span>
       <div class="spacer"></div>
+      <input type="text" id="outNameTrim" class="rename-input" spellcheck="false">
+      <button class="btn" id="btnReportTrim" data-i18n="reportBtn">Mostrar reporte</button>
       <button class="btn" id="btnPreview" data-i18n="btnPreview">Previsualizar recorte</button>
       <button class="btn primary" id="btnSave" data-i18n="btnSave">Guardar .hbr2</button>
       <button class="btn hidden" id="btnOriginal" data-i18n="btnOriginal">Reproducir original</button>
     </div>
     <div class="note" id="noteHead"></div>
     <div id="status"></div>
+  </div>
+
+  <div class="card hidden" id="reportcard">
+    <h2 data-i18n="reportTitle">Reporte</h2>
+    <table class="info-table">
+      <tr><th data-i18n="repOp">Operación</th><td id="repOp"></td></tr>
+      <tr><th data-i18n="repDate">Fecha</th><td id="repDate"></td></tr>
+      <tr><th data-i18n="repSrc">Origen</th><td id="repSrc"></td></tr>
+      <tr><th data-i18n="repRange">Rango</th><td id="repRange"></td></tr>
+      <tr><th data-i18n="repFrames">Frames</th><td id="repFrames"></td></tr>
+      <tr><th data-i18n="repSize">Tamaño</th><td id="repSize"></td></tr>
+      <tr><th data-i18n="repVerify">Verificación</th><td id="repVerify"></td></tr>
+    </table>
   </div>
 
   <div class="card hidden" id="playercard">
@@ -398,6 +419,18 @@
       errHist: 'error al guardar el historial: ',
       copyDone: 'Enlace copiado al portapapeles',
       copyFail: 'No se pudo copiar el enlace',
+      renamePh: 'Nombre del resultado…',
+      reportTitle: 'Reporte',
+      reportBtn: 'Mostrar reporte',
+      reportHide: 'Ocultar reporte',
+      repOp: 'Operación',
+      repDate: 'Fecha',
+      repSrc: 'Origen',
+      repRange: 'Rango',
+      repFrames: 'Frames',
+      repSize: 'Tamaño',
+      repVerify: 'Verificación',
+      repVerifyNA: '—',
       themeTitle: 'Cambiar tema (T)',
       ks: 'Atajos: <b>P</b> previsualizar · <b>S</b> guardar · <b>O</b> original · <b>T</b> tema · <b>H</b> historial · <b>Esc</b> cerrar',
       errMagic: 'no es un .hbr2 (magic HBR2 no encontrado)',
@@ -462,6 +495,18 @@
       errHist: 'error saving history: ',
       copyDone: 'Link copied to clipboard',
       copyFail: 'Could not copy the link',
+      renamePh: 'Result name…',
+      reportTitle: 'Report',
+      reportBtn: 'Show report',
+      reportHide: 'Hide report',
+      repOp: 'Operation',
+      repDate: 'Date',
+      repSrc: 'Source',
+      repRange: 'Range',
+      repFrames: 'Frames',
+      repSize: 'Size',
+      repVerify: 'Verification',
+      repVerifyNA: '—',
       themeTitle: 'Toggle theme (T)',
       ks: 'Shortcuts: <b>P</b> preview · <b>S</b> save · <b>O</b> original · <b>T</b> theme · <b>H</b> history · <b>Esc</b> close',
       errMagic: 'not an .hbr2 (HBR2 magic not found)',
@@ -499,6 +544,8 @@
     var els = document.querySelectorAll('[data-i18n]');
     for (var i = 0; i < els.length; i++) els[i].innerHTML = tr(els[i].getAttribute('data-i18n'));
     $('langBtn').textContent = lang === 'es' ? 'EN' : 'ES';
+    $('outNameTrim').placeholder = tr('renamePh');
+    $('outNameParts').placeholder = tr('renamePh');
     document.documentElement.lang = lang;
   }
   $('langBtn').addEventListener('click', function () {
@@ -930,12 +977,6 @@
     }).catch(function () {});
   }
 
-  function downloadParts() {
-    download(state.partsResultName, state.partsResult);
-    saveEdit('parts', state.partsResult, state.name, state.partsResultName, null);
-    setStatus(tr('statusSaved', { name: state.partsResultName }) + ' · ' + fmt(state.partsResult.length), 'ok');
-  }
-
   function loadFile(file) {
     if (!isHbr2(file.name)) { setStatus(tr('errMagic'), 'error'); return; }
     var rd = new FileReader();
@@ -998,6 +1039,9 @@
       state.partsResultName = stem(state.name) + (lang === 'es' ? '_sin_partes' : '_parts_removed') + '.hbr2';
       state.trimmedName = state.partsResultName;
       $('btnPartsSave').classList.remove('hidden');
+      $('btnReportParts').classList.remove('hidden');
+      $('outNameParts').classList.remove('hidden');
+      $('outNameParts').value = state.partsResultName;
       setPartsStatus('');
       state.isPreview = false;
       mountPlayer(state.partsResult, { preview: true });
@@ -1010,6 +1054,7 @@
     state.trimmed = new Uint8Array(m.bytes);
     state.trimmedKey = state.start + ':' + state.end;
     state.trimmedName = stem(state.name) + (lang === 'es' ? '_recortado' : '_trimmed') + '.hbr2';
+    $('outNameTrim').value = state.trimmedName;
     if (m.action === 'preview') {
       state.isPreview = false;
       mountPlayer(state.trimmed, { preview: true });
@@ -1020,11 +1065,79 @@
     }
   }
 
-  function downloadTrim() {
-    download(state.trimmedName, state.trimmed);
-    saveEdit('trim', state.trimmed, state.name, state.trimmedName, { start: state.start, end: state.end });
-    setStatus(tr('statusSaved', { name: state.trimmedName }) + ' · ' + fmt(state.trimmed.length), 'ok');
+  function resultName(defName) {
+    var n = String($('outNameTrim').value || '').trim();
+    if (defName.indexOf('_sin_partes') >= 0 || defName.indexOf('_parts_removed') >= 0) {
+      n = String($('outNameParts').value || '').trim();
+    }
+    n = n || defName;
+    if (!/\.hbr2$/i.test(n)) n += '.hbr2';
+    return n;
   }
+
+  function downloadTrim() {
+    var name = resultName(state.trimmedName);
+    download(name, state.trimmed);
+    saveEdit('trim', state.trimmed, state.name, name, { start: state.start, end: state.end });
+    setStatus(tr('statusSaved', { name: name }) + ' · ' + fmt(state.trimmed.length), 'ok');
+  }
+
+  function downloadParts() {
+    var name = resultName(state.partsResultName);
+    download(name, state.partsResult);
+    saveEdit('parts', state.partsResult, state.name, name, null);
+    setStatus(tr('statusSaved', { name: name }) + ' · ' + fmt(state.partsResult.length), 'ok');
+  }
+
+  function fillReport(op) {
+    var r = {
+      date: new Date().toLocaleString(),
+      src: state.name,
+      frames: state.dur,
+      size: state.bytes ? state.bytes.length : 0,
+      range: '',
+      resName: '',
+      resDur: 0,
+      resSize: 0,
+      opLabel: tr(op === 'parts' ? 'histOpParts' : 'histOpTrim')
+    };
+    if (op === 'parts' && state.partsResult) {
+      r.resName = resultName(state.partsResultName);
+      r.resDur = readHeader(state.partsResult).dur;
+      r.resSize = state.partsResult.length;
+      r.range = '';
+    } else if (op === 'trim' && state.trimmed) {
+      r.resName = resultName(state.trimmedName);
+      r.resDur = readHeader(state.trimmed).dur;
+      r.resSize = state.trimmed.length;
+      r.range = fmtTime(state.start) + ' → ' + fmtTime(state.end) + ' (' + (state.end - state.start) + ' f)';
+    }
+    $('repOp').textContent = r.opLabel;
+    $('repDate').textContent = r.date;
+    $('repSrc').textContent = r.src + ' (' + fmtTime(state.dur) + ' · ' + fmt(r.size) + ')';
+    $('repRange').textContent = r.range || '—';
+    $('repFrames').textContent = (op === 'parts' ? r.resDur : state.dur) + ' → ' + r.resDur;
+    $('repSize').textContent = fmt(r.size) + ' → ' + fmt(r.resSize);
+    $('repVerify').textContent = tr('repVerifyNA');
+  }
+
+  var reportOpen = false;
+  function toggleReport(op) {
+    if (reportOpen) {
+      $('reportcard').classList.add('hidden');
+      $('btnReportTrim').textContent = tr('reportBtn');
+      $('btnReportParts').textContent = tr('reportBtn');
+      reportOpen = false;
+      return;
+    }
+    fillReport(op);
+    $('reportcard').classList.remove('hidden');
+    $('btnReportTrim').textContent = tr('reportHide');
+    $('btnReportParts').textContent = tr('reportHide');
+    reportOpen = true;
+  }
+  $('btnReportTrim').addEventListener('click', function () { toggleReport('trim'); });
+  $('btnReportParts').addEventListener('click', function () { toggleReport('parts'); });
 
   $('btnPreview').addEventListener('click', function () { startTrim('preview'); });
   $('btnSave').addEventListener('click', function () {
