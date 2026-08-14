@@ -482,6 +482,7 @@
   function teardown() {
     if (state.view) { try { state.view.la(); } catch (e) {} }
     state.view = null; state.rep = null; state.trimMarkers = null;
+    window._pxy_rep = null; window._pxy_view = null;
     $('player').innerHTML = '';
   }
 
@@ -557,13 +558,33 @@
     }
   }
 
-  function addSeekDrag(rep, tb) {
+  function addSeekDrag(view, rep, tb) {
+    var ctrl = view.te, tl = tb.querySelector('.timetooltip');
+    function frac(clientX) {
+      var r = tb.getBoundingClientRect();
+      return r.width ? (clientX - r.left) / r.width : 0;
+    }
+    // El motor mapea el clic con (pageX - offsetLeft), y offsetLeft es relativo al
+    // ancestro posicionado (no al viewport): en el layout embebido el clic/hover en
+    // la barra se desvía (en fullscreen el contenedor está en el origen y coincide).
+    // Reemplazamos su onclick/onmousemove por el mismo mapeo del arrastre
+    // (clientX + getBoundingClientRect), independiente del scroll y del layout.
+    tb.onclick = function (e) {
+      var pos = Math.max(0, Math.min(1, frac(e.clientX)));
+      try { rep.Qr(pos * rep.uh * rep.Bf); } catch (err) {}
+      if (ctrl && !ctrl.lg) { ctrl.lg = true; if (ctrl.Gq) ctrl.Gq(); if (ctrl.El) ctrl.El(); }
+    };
+    tb.onmousemove = function (e) {
+      var t = Math.max(0, Math.min(1, frac(e.clientX)));
+      if (tl) {
+        var s = rep.Bf * rep.uh * t / 1000 | 0;
+        tl.textContent = (s / 60 | 0) + ':' + ('0' + s % 60).slice(-2);
+        tl.style.left = 'calc(' + (100 * t) + '% - 30px)';
+      }
+    };
     var dragging = false;
     function seekAt(clientX) {
-      var r = tb.getBoundingClientRect();
-      if (!r.width) return;
-      var pos = (clientX - r.left) / r.width;
-      if (pos < 0) pos = 0; else if (pos > 1) pos = 1;
+      var pos = Math.max(0, Math.min(1, frac(clientX)));
       try { rep.Qr(pos * rep.uh * rep.Bf); } catch (e) {}
     }
     tb.addEventListener('pointerdown', function (e) {
@@ -588,6 +609,7 @@
     try {
       var rep = new window._pxy_$b(new Uint8Array(bytes), new window._pxy_va, 3);
       var view = new window._pxy_vc(rep);
+      window._pxy_rep = rep; window._pxy_view = view;
       window._pxy_lastUb = -1;
       view._pxyV = function () {
         try {
@@ -618,7 +640,7 @@
         var ms = document.createElement('div'); ms.className = 'marker trim-marker start'; tb.appendChild(ms);
         var me = document.createElement('div'); me.className = 'marker trim-marker end'; tb.appendChild(me);
         state.trimMarkers = [ms, me];
-        addSeekDrag(rep, tb);
+        addSeekDrag(view, rep, tb);
       }
       addPlayerExtras(view.l.f);
       updateMarkers();
