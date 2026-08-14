@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Editor de recs HBR2</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='1' y='3' width='14' height='10' rx='2' fill='%231d2330' stroke='%234f8cff' stroke-width='1.5'/><rect x='4' y='6' width='8' height='4' rx='1' fill='%234f8cff'/></svg>">
+<link rel="stylesheet" href="vendor/fontello.css">
+<link rel="stylesheet" href="vendor/game.css">
+<link href="https://fonts.googleapis.com/css?family=Open+Sans:400,600,700" rel="stylesheet">
+<style>
+  :root {
+    --bg:#0f1420; --panel:#1d2330; --panel2:#202a40; --line:#2d3443;
+    --txt:#dbe4f4; --mut:#8ba0c0; --acc:#4f8cff; --ok:#2ecc71; --bad:#ff5a5a; --warn:#f1c40f;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt);
+    font-family:"Open Sans",Segoe UI,Roboto,Arial,sans-serif; font-size:14px; }
+  .wrap { max-width:1020px; margin:0 auto; padding:24px 16px 64px; }
+  header { display:flex; align-items:flex-start; margin-bottom:16px; }
+  header h1 { font-size:22px; margin:0 0 4px; }
+  header .sub { color:var(--mut); font-size:13px; margin:0; }
+  header .spacer { flex:1; }
+  #langBtn { background:var(--panel); color:var(--txt); border:1px solid var(--line);
+    border-radius:8px; padding:8px 14px; font-size:13px; cursor:pointer; font-weight:600; }
+  #langBtn:hover { border-color:var(--acc); }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px;
+    padding:18px; margin-bottom:16px; }
+  .card h2 { font-size:15px; margin:0 0 12px; color:var(--txt); font-weight:600; }
+  #dropzone { border:2px dashed var(--line); border-radius:8px; padding:30px 20px;
+    text-align:center; color:var(--mut); cursor:pointer; transition:border-color .15s, background .15s; }
+  #dropzone.over, #dropzone:hover { border-color:var(--acc); background:var(--panel2); color:var(--txt); }
+  #dropzone b { color:var(--acc); }
+  #dropzone .hint { font-size:12px; margin-top:8px; color:var(--mut); }
+  .info-table { width:100%; border-collapse:collapse; }
+  .info-table th, .info-table td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); font-size:13px; }
+  .info-table th { color:var(--mut); font-weight:600; width:150px; }
+  .info-table td { word-break:break-all; }
+  .trimrow { display:flex; gap:16px; flex-wrap:wrap; }
+  .trimcol { flex:1; min-width:260px; }
+  .trimcol label { display:block; font-size:13px; color:var(--mut); font-weight:600; margin-bottom:6px; }
+  .trimcol input[type=range] { width:100%; margin:4px 0; accent-color:var(--acc); }
+  .trimcol .numrow { display:flex; align-items:center; gap:8px; }
+  .trimcol input[type=number] { background:#0f1420; border:1px solid var(--line); color:var(--txt);
+    border-radius:6px; padding:6px 8px; font-size:13px; width:120px; font-variant-numeric:tabular-nums; }
+  .trimcol input[type=number]:focus { border-color:var(--acc); outline:none; }
+  .trimcol .hint { font-size:12px; color:var(--mut); margin-top:4px; font-variant-numeric:tabular-nums; }
+  .rangebar { position:relative; height:10px; background:var(--line); border-radius:5px; margin:14px 0 4px; }
+  .rangebar .sel { position:absolute; top:0; bottom:0; background:rgba(79,140,255,.45);
+    border-left:2px solid var(--acc); border-right:2px solid var(--acc); border-radius:5px; }
+  .actions { display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap; }
+  .btn { background:var(--panel2); color:var(--txt); border:1px solid var(--line); border-radius:8px;
+    padding:9px 14px; font-size:14px; cursor:pointer; font-weight:600; }
+  .btn:hover:not(:disabled) { border-color:var(--acc); }
+  .btn:disabled { opacity:.45; cursor:not-allowed; }
+  .btn.primary { background:var(--acc); border-color:var(--acc); color:#fff; }
+  .btn.primary:hover:not(:disabled) { filter:brightness(1.1); }
+  .btn.small { padding:4px 9px; font-size:12px; }
+  .spacer { flex:1; }
+  #trimInfo { font-size:13px; color:var(--mut); font-variant-numeric:tabular-nums; }
+  .note { background:rgba(241,196,15,.08); border:1px solid var(--warn); border-radius:8px;
+    padding:10px 14px; font-size:13px; margin-top:12px; display:none; color:#f7e7b0; }
+  #status { min-height:20px; font-size:13px; margin-top:10px; }
+  #status.running { color:var(--warn); }
+  #status.ok { color:var(--ok); font-weight:600; }
+  #status.error { color:var(--bad); font-weight:600; }
+  #warnbar { background:rgba(241,196,15,.1); border:1px solid var(--warn); border-radius:8px;
+    padding:10px 14px; font-size:13px; margin-bottom:16px; display:none; }
+  #warnbar b { color:var(--warn); }
+  #playerbar { display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap; }
+  #playerbar .fname { font-size:13px; color:var(--mut); word-break:break-all; flex:1; min-width:160px; }
+  #playerbar .badge { font-size:12px; font-weight:600; padding:3px 8px; border-radius:6px;
+    border:1px solid var(--acc); color:var(--acc); }
+  #player { position:relative; z-index:0; width:100%; height:min(68vh, calc(100vw * 9/17));
+    background:#0b0e14; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  #err { background:#2a1216; border:1px solid var(--bad); color:#ffd7d7; border-radius:8px;
+    padding:12px 16px; font-size:13px; white-space:pre-wrap; display:none; margin-bottom:16px; }
+  .hidden { display:none !important; }
+
+  /* ---- re-tinteado del motor (mismo esquema que el player del merger) ---- */
+  .game-state-view .bar-container { z-index:1; }
+  .game-state-view .bar { background:#151b29; border:1px solid var(--line); border-top:none; border-radius:0 0 5px 5px; }
+  .game-state-view .bar .score { color:var(--txt); }
+  .game-state-view .bar .teamicon.blue { background:#4f8cff; }
+  .game-state-view .bar .teamicon.red { background:#ff5a5a; }
+  .game-state-view .bar [data-hook=timer] { color:#b9c7dd; }
+  .replay-controls-view { background:#0d1119; border-top:1px solid var(--line); color:var(--txt); }
+  .replay-controls-view button { background:var(--panel2); border:1px solid var(--line); color:var(--txt); }
+  .replay-controls-view button:hover:not(:disabled) { background:#2a3550; border-color:var(--acc); }
+  .replay-controls-view button:active { background:#151b29; }
+  .replay-controls-view button:disabled { background:#161b26; border-color:var(--line); }
+  .replay-controls-view [data-hook=spd] { color:var(--txt); min-width:40px; }
+  .replay-controls-view [data-hook=time] { color:var(--mut); }
+  .replay-controls-view .timebar .barbg { background:#1c2434; }
+  .replay-controls-view .timebar .bar { background:var(--acc); }
+  .replay-controls-view .timebar .timetooltip { background:#0d1119; border:1px solid var(--line); color:var(--txt); }
+  .replay-controls-view .timebar .marker { background:rgba(139,160,192,.6); }
+  .replay-controls-view .timebar .marker.k1 { background:#2b58b8; }
+  .replay-controls-view .timebar .marker.k2 { background:#ff5a5a; }
+  .replay-controls-view .timebar .trim-marker { width:3px; height:12px; }
+  .replay-controls-view .timebar .trim-marker.start { background:var(--acc); }
+  .replay-controls-view .timebar .trim-marker.end { background:var(--bad); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1 data-i18n="title">Editor de recs HBR2</h1>
+      <p class="sub" data-i18n="sub">Recorta grabaciones .hbr2 de HaxBall: selecciona inicio y fin, previsualiza con el motor y guarda el recorte.</p>
+    </div>
+    <div class="spacer"></div>
+    <button id="langBtn">EN</button>
+  </header>
+
+  <div id="warnbar"></div>
+  <div id="err"></div>
+
+  <div class="card" id="dropcard">
+    <div id="dropzone">
+      <div data-i18n="dropTitle">Arrastra aquí un <b>.hbr2</b> o haz clic para elegirlo</div>
+      <div class="hint" data-i18n="dropHint">El recorte se procesa íntegramente en tu navegador (Web Worker): los archivos no se suben a ningún servidor.</div>
+    </div>
+    <input type="file" id="fileInput" accept=".hbr2" hidden>
+  </div>
+
+  <div class="card hidden" id="infocard">
+    <h2 data-i18n="infoTitle">Grabación cargada</h2>
+    <table class="info-table">
+      <tr><th data-i18n="infoName">Archivo</th><td id="infoName"></td></tr>
+      <tr><th data-i18n="infoSize">Tamaño</th><td id="infoSize"></td></tr>
+      <tr><th data-i18n="infoDur">Duración</th><td id="infoDur"></td></tr>
+    </table>
+  </div>
+
+  <div class="card hidden" id="trimcard">
+    <h2>Recorte</h2>
+    <div class="trimrow">
+      <div class="trimcol">
+        <label data-i18n="lblStart">Inicio</label>
+        <input type="range" id="startRange" min="0" max="0" value="0">
+        <div class="numrow">
+          <input type="number" id="startNum" min="0" max="0" value="0">
+          <span class="hint" data-i18n="lblFrames">frames</span>
+        </div>
+        <div class="hint" id="startTime"></div>
+      </div>
+      <div class="trimcol">
+        <label data-i18n="lblEnd">Fin</label>
+        <input type="range" id="endRange" min="0" max="0" value="0">
+        <div class="numrow">
+          <input type="number" id="endNum" min="0" max="0" value="0">
+          <span class="hint" data-i18n="lblFrames">frames</span>
+        </div>
+        <div class="hint" id="endTime"></div>
+      </div>
+    </div>
+    <div class="rangebar"><div class="sel" id="selRegion"></div></div>
+    <div class="actions">
+      <span id="trimInfo"></span>
+      <div class="spacer"></div>
+      <button class="btn" id="btnPreview" data-i18n="btnPreview">Previsualizar recorte</button>
+      <button class="btn primary" id="btnSave" data-i18n="btnSave">Guardar .hbr2</button>
+      <button class="btn hidden" id="btnOriginal" data-i18n="btnOriginal">Reproducir original</button>
+    </div>
+    <div class="note" id="noteHead"></div>
+    <div id="status"></div>
+  </div>
+
+  <div class="card hidden" id="playercard">
+    <h2 data-i18n="playing">Reproduciendo</h2>
+    <div id="playerbar">
+      <span class="fname" id="playerName"></span>
+      <span class="badge hidden" id="modeBadge"></span>
+    </div>
+    <div id="player"></div>
+  </div>
+</div>
+
+<div id="container" hidden></div>
+
+<script src="vendor/pako-jszip.min.js"></script>
+<script src="game-min_patched.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var I18N = {
+    es: {
+      title: 'Editor de recs HBR2',
+      sub: 'Recorta grabaciones .hbr2 de HaxBall: selecciona inicio y fin, previsualiza con el motor y guarda el recorte.',
+      dropTitle: 'Arrastra aquí un <b>.hbr2</b> o haz clic para elegirlo',
+      dropHint: 'El recorte se procesa íntegramente en tu navegador (Web Worker): los archivos no se suben a ningún servidor.',
+      fileWarn: '<b>Estás abriendo esta página con doble clic (protocolo <code>file://</code>).</b> Chrome bloquea los Web Workers en <code>file://</code>, así que el recorte no puede arrancar. Ábrela a través de un servidor local (<code>npx serve</code>, Live Server, <code>python -m http.server</code>) o usa la versión desplegada en Cloudflare Pages.',
+      infoTitle: 'Grabación cargada',
+      infoName: 'Archivo',
+      infoSize: 'Tamaño',
+      infoDur: 'Duración',
+      lblStart: 'Inicio',
+      lblEnd: 'Fin',
+      lblFrames: 'frames',
+      region: 'Selección: {s} → {e} · {n} frames',
+      btnPreview: 'Previsualizar recorte',
+      btnSave: 'Guardar .hbr2',
+      btnOriginal: 'Reproducir original',
+      playing: 'Reproduciendo',
+      originalLabel: 'original',
+      previewLabel: 'recorte',
+      noteHead: 'Aviso: recortar por el inicio deja los primeros frames sin las acciones de ese tramo (limitación del formato .hbr2: la sala solo se serializa al principio del archivo).',
+      statusLoaded: 'Cargada: {name}',
+      statusTrimming: 'Recortando…',
+      statusPreviewDone: 'Vista previa del recorte cargada ({frames} frames).',
+      statusSaved: 'Guardado: {name}',
+      statusTrimmed: 'Recorte listo ({frames} frames · {size}).',
+      errMagic: 'no es un .hbr2 (magic HBR2 no encontrado)',
+      errVer: 'versión de replay no soportada: {v} (se espera 3)',
+      errRange: 'recorte inválido: el final debe ser mayor que el inicio',
+      errNoWorker: 'tu navegador no soporta Web Workers',
+      errWorker: 'error en el worker: ',
+      errRead: 'no se pudo leer el archivo',
+      errEngine: 'el motor patcheado no se cargó (window._pxy_$b ausente). Haz Ctrl+F5 y recarga.',
+      errRender: 'fallo de render (frame {f}): ',
+      errTrim: 'error al recortar: '
+    },
+    en: {
+      title: 'HBR2 Rec Editor',
+      sub: 'Trim HaxBall .hbr2 recordings: pick start and end, preview with the engine and save the clip.',
+      dropTitle: 'Drop a <b>.hbr2</b> here or click to choose one',
+      dropHint: 'Trimming runs entirely in your browser (Web Worker): files are never uploaded to any server.',
+      fileWarn: '<b>You are opening this page by double-clicking it (<code>file://</code> protocol).</b> Chrome blocks Web Workers on <code>file://</code>, so trimming cannot start. Open it through a local server (<code>npx serve</code>, Live Server, <code>python -m http.server</code>) or use the Cloudflare Pages version.',
+      infoTitle: 'Recording loaded',
+      infoName: 'File',
+      infoSize: 'Size',
+      infoDur: 'Duration',
+      lblStart: 'Start',
+      lblEnd: 'End',
+      lblFrames: 'frames',
+      region: 'Selection: {s} → {e} · {n} frames',
+      btnPreview: 'Preview trim',
+      btnSave: 'Save .hbr2',
+      btnOriginal: 'Play original',
+      playing: 'Playing',
+      originalLabel: 'original',
+      previewLabel: 'trim',
+      noteHead: 'Note: trimming from the start leaves the first frames without the actions of that segment (a .hbr2 format limitation: the room is only serialized at the beginning of the file).',
+      statusLoaded: 'Loaded: {name}',
+      statusTrimming: 'Trimming…',
+      statusPreviewDone: 'Preview trim loaded ({frames} frames).',
+      statusSaved: 'Saved: {name}',
+      statusTrimmed: 'Trim ready ({frames} frames · {size}).',
+      errMagic: 'not an .hbr2 (HBR2 magic not found)',
+      errVer: 'unsupported replay version: {v} (expected 3)',
+      errRange: 'invalid trim: the end must be greater than the start',
+      errNoWorker: 'your browser does not support Web Workers',
+      errWorker: 'worker error: ',
+      errRead: 'could not read the file',
+      errEngine: 'the patched engine did not load (window._pxy_$b missing). Hard refresh (Ctrl+F5) and retry.',
+      errRender: 'render failure (frame {f}): ',
+      errTrim: 'trim error: '
+    }
+  };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var lang = 'es';
+  try { lang = localStorage.getItem('hbr2.lang') || 'es'; } catch (e) {}
+  if (I18N[lang] === undefined) lang = 'es';
+
+  var state = {
+    bytes: null, name: '', dur: 0,
+    start: 0, end: 0,
+    trimmed: null, trimmedKey: null, trimmedName: '',
+    view: null, rep: null, isPreview: false, trimMarkers: null,
+    jobId: 0, worker: null
+  };
+
+  function tr(key, vars) {
+    var s = I18N[lang][key] !== undefined ? I18N[lang][key] : key;
+    if (vars) for (var k in vars) s = s.split('{' + k + '}').join(vars[k]);
+    return s;
+  }
+  function applyI18n() {
+    var els = document.querySelectorAll('[data-i18n]');
+    for (var i = 0; i < els.length; i++) els[i].innerHTML = tr(els[i].getAttribute('data-i18n'));
+    $('langBtn').textContent = lang === 'es' ? 'EN' : 'ES';
+    document.documentElement.lang = lang;
+  }
+  $('langBtn').addEventListener('click', function () {
+    lang = lang === 'es' ? 'en' : 'es';
+    try { localStorage.setItem('hbr2.lang', lang); } catch (e) {}
+    applyI18n();
+  });
+
+  function fmt(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1048576).toFixed(2) + ' MB';
+  }
+  function fmtTime(f) {
+    f = Math.floor(f / 30);
+    var m = (f / 60) | 0, s = f % 60;
+    return m + ':' + String(s).padStart(2, '0');
+  }
+  function stem(n) { return String(n || 'rec').replace(/\.hbr2$/i, '').replace(/[\\/:*?"<>|]+/g, '_'); }
+  function isHbr2(name) { return /\.hbr2$/i.test(name || ''); }
+
+  function setStatus(msg, cls) {
+    var el = $('status');
+    el.textContent = msg || '';
+    el.className = cls || '';
+  }
+  function setErr(msg) {
+    var el = $('err');
+    el.innerHTML = msg || '';
+    el.style.display = msg ? 'block' : 'none';
+  }
+
+  if (!window._pxy_$b || !window._pxy_va || !window._pxy_vc) {
+    setErr(tr('errEngine'));
+  }
+
+  // Sonido (mismo patrón que el player del merger): el motor deja m.Ra como stub
+  // mudo al correr a nivel superior; aquí se sustituye por el gestor real (jc) con
+  // el res.dat oficial una vez decodificadas sus pistas (Zo). Sin res.dat o con
+  // file:// el catch lo deja como stub mudo, sin romper el render.
+  function loadSound() {
+    if (!window._pxy_jc || !window._pxy_setRa || !window.JSZip) return;
+    fetch('res.dat').then(function (r) {
+      if (!r.ok) throw new Error('res.dat ' + r.status);
+      return r.arrayBuffer();
+    }).then(function (buf) {
+      var ra = new window._pxy_jc(new JSZip(buf));
+      window._pxy_ra = ra;
+      var resume = function () { try { ra.sm(); } catch (e) {} };
+      window.addEventListener('click', resume, { once: true, capture: true });
+      window.addEventListener('keydown', resume, { once: true, capture: true });
+      return ra.Zo.then(function () { window._pxy_setRa(ra); });
+    }).catch(function () {});
+  }
+  loadSound();
+
+  function readHeader(bytes) {
+    var dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (dv.getUint32(0, false) !== 0x48425232) throw new Error(tr('errMagic'));
+    var ver = dv.getUint32(4, false);
+    if (ver !== 3) throw new Error(tr('errVer', { v: ver }));
+    return { ver: ver, dur: dv.getUint32(8, false) };
+  }
+
+  function teardown() {
+    if (state.view) { try { state.view.la(); } catch (e) {} }
+    state.view = null; state.rep = null; state.trimMarkers = null;
+    $('player').innerHTML = '';
+  }
+
+  function updateMarkers() {
+    if (!state.view || !state.trimMarkers) return;
+    var on = !state.isPreview;
+    for (var i = 0; i < state.trimMarkers.length; i++) state.trimMarkers[i].style.display = on ? '' : 'none';
+    if (!on) return;
+    state.trimMarkers[0].style.left = (state.start / state.dur * 100) + '%';
+    state.trimMarkers[1].style.left = (state.end / state.dur * 100) + '%';
+  }
+
+  function mountPlayer(bytes, opts) {
+    teardown();
+    try {
+      var rep = new window._pxy_$b(new Uint8Array(bytes), new window._pxy_va, 3);
+      var view = new window._pxy_vc(rep);
+      window._pxy_lastUb = -1;
+      view._pxyV = function () {
+        try {
+          view.l.A(rep);
+          var ra = window._pxy_ra, ub = rep.Ub, last = window._pxy_lastUb;
+          if (ra && ra.qp && ub > last) {
+            var goals = rep.pl || [], total = rep.uh * rep.Bf;
+            for (var i = 0; i < goals.length; i++) {
+              var t = goals[i].Dj * total;
+              if (t > last && t <= ub) { try { ra.md(ra.qp); } catch (e) {} }
+            }
+          }
+          window._pxy_lastUb = ub;
+        }
+        catch (e) { if (!view._pxyVf) { view._pxyVf = true; setErr(tr('errRender', { f: rep.Y }) + (e && e.message ? e.message : e)); } }
+      };
+      view.te.oe = function () { teardown(); };
+      state.view = view; state.rep = rep; state.isPreview = !!(opts && opts.preview);
+      view.l.f.style.position = 'absolute';
+      view.l.f.style.width = '100%';
+      view.l.f.style.height = '100%';
+      view.l.f.style.top = '0';
+      view.l.f.style.left = '0';
+      $('player').appendChild(view.l.f);
+      var te = view.te.f;
+      var tb = te.querySelector('[data-hook=timebar]');
+      if (tb) {
+        var ms = document.createElement('div'); ms.className = 'marker trim-marker start'; tb.appendChild(ms);
+        var me = document.createElement('div'); me.className = 'marker trim-marker end'; tb.appendChild(me);
+        state.trimMarkers = [ms, me];
+      }
+      updateMarkers();
+    } catch (e) {
+      setErr(tr('errRender', { f: 0 }) + (e && e.message ? e.message : e));
+    }
+  }
+
+  function updatePlayerBar() {
+    $('playerName').textContent = state.name + (state.isPreview ? ' → ' + state.trimmedName : '');
+    $('modeBadge').textContent = state.isPreview ? tr('previewLabel') : tr('originalLabel');
+    $('modeBadge').classList.toggle('hidden', !state.isPreview);
+    $('btnOriginal').classList.toggle('hidden', !state.isPreview);
+  }
+
+  function syncRanges() {
+    var dur = state.dur;
+    state.start = Math.max(0, Math.min(state.start, dur - 1));
+    state.end = Math.max(state.start + 1, Math.min(state.end, dur));
+    $('startRange').max = dur; $('startNum').max = dur;
+    $('endRange').max = dur; $('endNum').max = dur;
+    $('startRange').value = state.start; $('startNum').value = state.start;
+    $('endRange').value = state.end; $('endNum').value = state.end;
+    $('startTime').textContent = fmtTime(state.start);
+    $('endTime').textContent = fmtTime(state.end);
+    var pct = state.start / dur * 100, w = (state.end - state.start) / dur * 100;
+    var sel = $('selRegion');
+    sel.style.left = pct + '%'; sel.style.width = w + '%';
+    $('trimInfo').textContent = tr('region', {
+      s: fmtTime(state.start), e: fmtTime(state.end), n: state.end - state.start
+    });
+    $('noteHead').style.display = state.start > 0 ? '' : 'none';
+    updateMarkers();
+  }
+
+  $('startRange').addEventListener('input', function () { state.start = parseInt($('startRange').value, 10); syncRanges(); });
+  $('endRange').addEventListener('input', function () { state.end = parseInt($('endRange').value, 10); syncRanges(); });
+  $('startNum').addEventListener('change', function () { state.start = parseInt($('startNum').value, 10) || 0; syncRanges(); });
+  $('endNum').addEventListener('change', function () { state.end = parseInt($('endNum').value, 10) || state.dur; syncRanges(); });
+
+  function loadBytes(bytes, name) {
+    var hdr = readHeader(bytes);
+    teardown();
+    state.bytes = bytes; state.name = name; state.dur = hdr.dur;
+    state.start = 0; state.end = hdr.dur;
+    state.trimmed = null; state.trimmedKey = null;
+    $('infocard').classList.remove('hidden');
+    $('trimcard').classList.remove('hidden');
+    $('playercard').classList.remove('hidden');
+    $('infoName').textContent = name;
+    $('infoSize').textContent = fmt(bytes.length);
+    $('infoDur').textContent = fmtTime(hdr.dur) + ' (' + hdr.dur + ' frames)';
+    syncRanges();
+    updatePlayerBar();
+    mountPlayer(bytes, {});
+    setStatus(tr('statusLoaded', { name: name }) + ' · ' + fmt(bytes.length), 'ok');
+  }
+
+  function loadFile(file) {
+    if (!isHbr2(file.name)) { setStatus(tr('errMagic'), 'error'); return; }
+    var rd = new FileReader();
+    rd.onload = function () { try { loadBytes(new Uint8Array(rd.result), file.name); } catch (e) { setStatus(e.message, 'error'); } };
+    rd.onerror = function () { setStatus(tr('errRead'), 'error'); };
+    rd.readAsArrayBuffer(file);
+  }
+
+  var dz = $('dropzone'), fi = $('fileInput');
+  dz.addEventListener('click', function () { fi.click(); });
+  fi.addEventListener('change', function () { if (fi.files && fi.files[0]) loadFile(fi.files[0]); fi.value = ''; });
+  ['dragenter', 'dragover'].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.add('over'); }); });
+  ['dragleave', 'drop'].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.remove('over'); }); });
+  dz.addEventListener('drop', function (e) { if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]); });
+
+  function getWorker() {
+    if (state.worker) return state.worker;
+    if (typeof Worker === 'undefined') throw new Error(tr('errNoWorker'));
+    state.worker = new Worker('trim-worker.js');
+    state.worker.onmessage = onWorkerMsg;
+    state.worker.onerror = function (e) { setStatus(tr('errWorker') + (e && e.message ? e.message : ''), 'error'); };
+    return state.worker;
+  }
+
+  function startTrim(action) {
+    try {
+      if (!state.bytes) return;
+      if (state.end <= state.start) throw new Error(tr('errRange'));
+      state.jobId++;
+      setStatus(tr('statusTrimming'), 'running');
+      getWorker().postMessage({ id: state.jobId, action: action, bytes: state.bytes, start: state.start, end: state.end });
+    } catch (e) { setStatus(e.message, 'error'); }
+  }
+
+  function onWorkerMsg(e) {
+    var m = e.data;
+    if (!m || m.id !== state.jobId) return;
+    state.jobId = 0;
+    if (!m.ok) { setStatus(tr('errTrim') + m.error, 'error'); return; }
+    state.trimmed = new Uint8Array(m.bytes);
+    state.trimmedKey = state.start + ':' + state.end;
+    state.trimmedName = stem(state.name) + (lang === 'es' ? '_recortado' : '_trimmed') + '.hbr2';
+    if (m.action === 'preview') {
+      state.isPreview = false;
+      mountPlayer(state.trimmed, { preview: true });
+      updatePlayerBar();
+      setStatus(tr('statusPreviewDone', { frames: state.end - state.start }), 'ok');
+    } else {
+      downloadTrim();
+    }
+  }
+
+  function downloadTrim() {
+    var blob = new Blob([state.trimmed], { type: 'application/octet-stream' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = state.trimmedName;
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+    setStatus(tr('statusSaved', { name: state.trimmedName }) + ' · ' + fmt(state.trimmed.length), 'ok');
+  }
+
+  $('btnPreview').addEventListener('click', function () { startTrim('preview'); });
+  $('btnSave').addEventListener('click', function () {
+    if (state.trimmed && state.trimmedKey === state.start + ':' + state.end) downloadTrim();
+    else startTrim('save');
+  });
+  $('btnOriginal').addEventListener('click', function () {
+    if (!state.bytes) return;
+    state.isPreview = false;
+    mountPlayer(state.bytes, {});
+    updatePlayerBar();
+  });
+
+  if (location.protocol === 'file:') {
+    $('warnbar').innerHTML = tr('fileWarn');
+    $('warnbar').style.display = 'block';
+  }
+
+  applyI18n();
+
+  var qp = new URLSearchParams(location.search);
+  var sample = qp.get('sample');
+  if (sample) {
+    fetch(sample).then(function (r) {
+      if (!r.ok) throw new Error('sample ' + r.status);
+      return r.arrayBuffer();
+    }).then(function (buf) {
+      loadBytes(new Uint8Array(buf), sample.split('/').pop() || 'sample.hbr2');
+    }).catch(function (e) { setErr('sample: ' + (e && e.message ? e.message : e)); });
+  }
+})();
+</script>
+</body>
+</html>
