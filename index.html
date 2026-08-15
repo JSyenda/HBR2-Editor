@@ -679,7 +679,7 @@
     return (n / 1048576).toFixed(2) + ' MB';
   }
   function fmtTime(f) {
-    f = Math.floor(f / 30);
+    f = Math.floor(f / 60);
     var m = (f / 60) | 0, s = f % 60;
     return m + ':' + String(s).padStart(2, '0');
   }

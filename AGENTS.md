@@ -9,7 +9,7 @@ Estructura de archivo (nada de esto es un zip a nivel de archivo, es un contened
 - **Cabecera de 12 bytes** (big-endian):
   - `0x00` u32 magic `0x48425232` ("HBR2")
   - `0x04` u32 versión = **3**
-  - `0x08` u32 duración en **frames a 30 fps**
+  - `0x08` u32 duración en **frames a 60 fps**
 - **Cuerpo** (`bytes[12..]`): flujo raw-deflate (`pako.inflateRaw`). Al descomprimir:
   1. **Tabla WOM** (marcadores): 2 bytes = nº de entradas, luego por entrada `[varint delta-abs, u8 tipo]`.
   2. **Snapshot de sala** (serializado solo al inicio del archivo; el formato no permite re-serializar la sala en medio).
@@ -22,7 +22,7 @@ Las acciones son clases del registro `game.p.wj` del motor minificado. NO se pue
 - `new $b(bytes, state, 3)` parsea un replay.
 - `rep.A()` avanza un frame; `rep.Y` = frame actual; `rep.Bf` = duración.
 - `rep.ug` = próxima acción, `rep.vg` = su frame absoluto, `rep.dm()` la consume.
-- `rep.hi` = reloj del replay; el motor lee el tiempo de `window.performance.now()`, así que el determinismo (lockstep) se consigue instalando `window.performance.now = () => _now` y avanzando `_now += 3.3333333333333335` (ms por frame @30fps) antes de cada `A()`.
+- `rep.hi` = reloj del replay; el motor lee el tiempo de `window.performance.now()`, así que el determinismo (lockstep) se consigue instalando `window.performance.now = () => _now` y avanzando `_now` un incremento monotónico (p. ej. 3.3333333333333335) antes de cada `A()`. El valor no codifica fps reales; el motor avanza 1 frame por `A()` y su reloj interno va a `uh = 16.6667 ms` (60 fps). Los tiempos mostrados se calculan con `frames / 60`.
 - ids de tipo (orden de `game.Nc.xj()`, registro de 24): `Ha=5, na=6, bb=7, cb=8, Aa=10, Oa=11, fa=12, Pa=13, Qa=14, Kb=20, La=21, Mb=23`.
 
 ### Recorte — ya resuelto
