@@ -900,7 +900,7 @@
     }
   }
 
-  var compare = { open: false };
+  var compare = { open: false, wasPreview: false };
 
   // Rangos [a,b) del original que desaparecen en el resultado actual.
   function getRemovedRanges() {
@@ -935,7 +935,18 @@
 
   function closeCompare() {
     compare.open = false;
-    updateCompareRegion();
+    var was = compare.wasPreview;
+    compare.wasPreview = false;
+    // Si la comparativa se abrió estando en la vista previa del resultado,
+    // al cerrar se restaura esa vista previa.
+    if (was && (state.trimmed || state.partsResult)) {
+      var res = state.trimmed || state.partsResult;
+      state.isPreview = true;
+      mountPlayer(res, { preview: true });
+      updatePlayerBar();
+    } else {
+      updateCompareRegion();
+    }
     $('btnCompare').textContent = tr('compareOpen');
   }
 
@@ -944,6 +955,13 @@
     var res = state.trimmed || state.partsResult;
     if (!res) { setStatus(tr('compareNoResult'), 'error'); return; }
     compare.open = true;
+    // La comparativa vuelve el player al original completo para ver el tramo
+    // eliminado resaltado; al cerrar se restaura la vista previa que había.
+    compare.wasPreview = state.isPreview;
+    if (state.isPreview) {
+      state.isPreview = false;
+      mountPlayer(state.bytes, {});
+    }
     updateCompareRegion();
     $('btnCompare').textContent = tr('compareClose');
     setStatus(tr('compareHint'), 'ok');
