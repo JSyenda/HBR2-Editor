@@ -105,12 +105,6 @@
   #trimInfo { font-size:13px; color:var(--mut); font-variant-numeric:tabular-nums; }
   #playerbar { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
   #playerbar .btn { padding:6px 12px; font-size:13px; }
-  #comparecard { display:flex; flex-direction:column; gap:10px; }
-  .compare-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-  .compare-col { min-width:0; }
-  .compare-title { font-size:12px; color:var(--mut); font-weight:700; margin-bottom:6px; text-align:center; }
-  .compare-player { position:relative; width:100%; aspect-ratio:16/10; border:1px solid var(--line);
-    border-radius:8px; overflow:hidden; background:#000; }
   .partrow { display:flex; align-items:center; gap:10px; padding:9px 12px; border:1px solid var(--line);
     border-radius:8px; margin-bottom:8px; background:var(--panel2); cursor:pointer; font-size:13px; }
   .partrow:hover { border-color:var(--acc); }
@@ -184,6 +178,10 @@
   .replay-controls-view .timebar .trim-marker { width:3px; }
   .replay-controls-view .timebar .trim-marker.start { background:var(--acc); }
   .replay-controls-view .timebar .trim-marker.end { background:var(--bad); }
+  .replay-controls-view .timebar .cmp-overlay { position:absolute; top:0; bottom:0; left:0; right:0;
+    pointer-events:none; display:none; }
+  .replay-controls-view .timebar .cmp-overlay .cmp-region { position:absolute; top:0; bottom:0;
+    background:rgba(255,90,90,.30); border-radius:5px; }
 
   /* --- lobby / diálogos --- */
   .dialog, .room-view>.container { background:var(--panel); border:1px solid var(--line); }
@@ -392,20 +390,6 @@
     </div>
     <div id="player"></div>
   </div>
-
-  <div class="card hidden" id="comparecard">
-    <h2 data-i18n="compareTitle">Comparativa</h2>
-    <div class="compare-grid">
-      <div class="compare-col">
-        <div class="compare-title" id="compareALbl" data-i18n="compareOrig">Original</div>
-        <div class="compare-player" id="compareA"></div>
-      </div>
-      <div class="compare-col">
-        <div class="compare-title" id="compareBLbl" data-i18n="compareRes">Resultado</div>
-        <div class="compare-player" id="compareB"></div>
-      </div>
-    </div>
-  </div>
 </div>
 
 <div id="container" hidden></div>
@@ -438,11 +422,9 @@
       playing: 'Reproduciendo',
       originalLabel: 'original',
       previewLabel: 'recorte',
-      compareTitle: 'Comparativa',
       compareOpen: 'Comparativa',
       compareClose: 'Cerrar comparativa',
-      compareOrig: 'Original',
-      compareRes: 'Resultado',
+      compareHint: 'Tramo eliminado resaltado en rojo en la barra de tiempo.',
       compareNoResult: 'Calcula primero un recorte o una eliminación para comparar.',
       noteHead: 'Aviso: recortar por el inicio deja los primeros frames sin las acciones de ese tramo (limitación del formato .hbr2: la sala solo se serializa al principio del archivo).',
       statusLoaded: 'Cargada: {name}',
@@ -548,11 +530,9 @@
       playing: 'Playing',
       originalLabel: 'original',
       previewLabel: 'trim',
-      compareTitle: 'Compare',
       compareOpen: 'Compare',
       compareClose: 'Close compare',
-      compareOrig: 'Original',
-      compareRes: 'Result',
+      compareHint: 'Removed segment highlighted in red on the timebar.',
       compareNoResult: 'Compute a trim or a cut first to compare.',
       noteHead: 'Note: trimming from the start leaves the first frames without the actions of that segment (a .hbr2 format limitation: the room is only serialized at the beginning of the file).',
       statusLoaded: 'Loaded: {name}',
@@ -649,8 +629,8 @@
     bytes: null, name: '', dur: 0,
     start: 0, end: 0, cutMode: 'trim',
     trimmed: null, trimmedKey: null, trimmedName: '', verify: null,
-    parts: [], partsResult: null, partsResultName: '',
-    view: null, rep: null, isPreview: false, trimMarkers: null,
+    parts: [], partsResult: null, partsResultName: '', partsRemovals: null,
+    view: null, rep: null, isPreview: false, trimMarkers: null, cmpBox: null,
     jobId: 0, analysisId: 0, inspectId: 0, worker: null
   };
 
@@ -735,9 +715,8 @@
   }
 
   function teardown() {
-    closeCompare();
     if (state.view) { try { state.view.la(); } catch (e) {} }
-    state.view = null; state.rep = null; state.trimMarkers = null;
+    state.view = null; state.rep = null; state.trimMarkers = null; state.cmpBox = null;
     window._pxy_rep = null; window._pxy_view = null;
     $('player').innerHTML = '';
   }
@@ -902,11 +881,18 @@
           var ms = document.createElement('div'); ms.className = 'marker trim-marker start'; tb.appendChild(ms);
           var me = document.createElement('div'); me.className = 'marker trim-marker end'; tb.appendChild(me);
           state.trimMarkers = [ms, me];
+          var bg = tb.querySelector('.barbg');
+          if (bg) {
+            var box = document.createElement('div'); box.className = 'cmp-overlay';
+            bg.insertBefore(box, bg.firstChild);
+            state.cmpBox = box;
+          }
         }
         addSeekDrag(view, rep, tb, opts && opts.onSeek);
       }
       addPlayerExtras(view.l.f);
       if (isMain) updateMarkers();
+      if (isMain) updateCompareRegion();
       return { rep: rep, view: view };
     } catch (e) {
       setErr(tr('errRender', { f: 0 }) + (e && e.message ? e.message : e));
@@ -914,21 +900,42 @@
     }
   }
 
-  var compare = { open: false, a: null, b: null };
+  var compare = { open: false };
 
-  function mirrorCompare(ms, from) {
-    var target = from === 'a' ? compare.b : compare.a;
-    if (target && target.rep) { try { target.rep.Qr(Math.min(ms, target.rep.uh * target.rep.Bf)); } catch (e) {} }
+  // Rangos [a,b) del original que desaparecen en el resultado actual.
+  function getRemovedRanges() {
+    if (state.partsResult && state.partsRemovals && state.partsRemovals.length) return state.partsRemovals;
+    if (!state.trimmed) return null;
+    if (state.cutMode === 'cut') return [[state.start, state.end]];
+    return [[0, state.start], [state.end, state.dur]];
+  }
+
+  // Pinta en rojo apagado los tramos eliminados sobre la barra del player normal.
+  // Solo se muestran con la comparativa abierta y cuando el player muestra el
+  // original (si muestra el resultado, el tramo ya no existe en su timeline).
+  function updateCompareRegion() {
+    var box = state.cmpBox;
+    if (!box) return;
+    box.innerHTML = '';
+    var show = compare.open && !state.isPreview;
+    if (!show) { box.style.display = 'none'; return; }
+    var ranges = getRemovedRanges();
+    if (!ranges || !ranges.length) { box.style.display = 'none'; return; }
+    box.style.display = 'block';
+    var dur = state.dur || 1;
+    for (var i = 0; i < ranges.length; i++) {
+      var a = Math.max(0, ranges[i][0]), b = Math.min(dur, ranges[i][1]);
+      if (b <= a) continue;
+      var el = document.createElement('div'); el.className = 'cmp-region';
+      el.style.left = (a / dur * 100) + '%';
+      el.style.width = ((b - a) / dur * 100) + '%';
+      box.appendChild(el);
+    }
   }
 
   function closeCompare() {
     compare.open = false;
-    if (compare.a) { try { compare.a.view.la(); } catch (e) {} }
-    if (compare.b) { try { compare.b.view.la(); } catch (e) {} }
-    compare.a = null; compare.b = null;
-    $('comparecard').classList.add('hidden');
-    $('compareA').innerHTML = '';
-    $('compareB').innerHTML = '';
+    updateCompareRegion();
     $('btnCompare').textContent = tr('compareOpen');
   }
 
@@ -937,21 +944,9 @@
     var res = state.trimmed || state.partsResult;
     if (!res) { setStatus(tr('compareNoResult'), 'error'); return; }
     compare.open = true;
-    $('comparecard').classList.remove('hidden');
-    // El espejo replica el seek de un lado al otro en el MISMO momento del partido
-    // (ms absolutos). Durante la reproducción ambos comparten el reloj y avanzan a
-    // la par; el enganche en la barra evita bucles de sincronización.
-    compare.a = mountPlayer(state.bytes, {
-      onSeek: function (ms) { mirrorCompare(ms, 'a'); }
-    }, $('compareA'));
-    compare.b = mountPlayer(res, {
-      preview: true,
-      onSeek: function (ms) { mirrorCompare(ms, 'b'); }
-    }, $('compareB'));
-    if (!compare.a || !compare.b) { closeCompare(); return; }
-    $('compareALbl').textContent = tr('compareOrig');
-    $('compareBLbl').textContent = tr('compareRes');
+    updateCompareRegion();
     $('btnCompare').textContent = tr('compareClose');
+    setStatus(tr('compareHint'), 'ok');
   }
 
   $('btnCompare').addEventListener('click', function () {
@@ -959,13 +954,15 @@
     else openCompare();
   });
   window._pxy_compare = compare;
-  window._pxy_mirror = mirrorCompare;
+  window._pxy_removedRanges = getRemovedRanges;
+  window._pxy_trimmedKey = function () { return state.trimmedKey; };
 
   function updatePlayerBar() {
     $('playerName').textContent = state.name + (state.isPreview ? ' → ' + state.trimmedName : '');
     $('modeBadge').textContent = state.isPreview ? tr('previewLabel') : tr('originalLabel');
     $('modeBadge').classList.toggle('hidden', !state.isPreview);
     $('btnOriginal').classList.toggle('hidden', !state.isPreview);
+    updateCompareRegion();
   }
 
   function syncRanges() {
@@ -993,6 +990,7 @@
       $('noteHead').style.display = state.start > 0 ? '' : 'none';
     }
     updateMarkers();
+    updateCompareRegion();
   }
 
   $('startRange').addEventListener('input', function () { state.start = parseInt($('startRange').value, 10); syncRanges(); });
@@ -1011,11 +1009,12 @@
 
   function loadBytes(bytes, name) {
     var hdr = readHeader(bytes);
+    closeCompare();
     teardown();
     state.bytes = bytes; state.name = name; state.dur = hdr.dur;
     state.start = 0; state.end = hdr.dur;
     state.trimmed = null; state.trimmedKey = null; state.verify = null;
-    state.parts = []; state.partsResult = null; state.partsResultName = '';
+    state.parts = []; state.partsResult = null; state.partsResultName = ''; state.partsRemovals = null;
     $('partsList').innerHTML = '';
     $('btnPartsSave').classList.add('hidden');
     setPartsStatus('');
@@ -1431,6 +1430,7 @@
   $('btnPartsRemove').addEventListener('click', function () {
     var selected = getSelectedParts();
     if (!selected.length) return;
+    state.partsRemovals = selected;
     state.jobId++;
     setPartsStatus(tr('partsProgress'), 'running');
     setStatus('');
