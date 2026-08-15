@@ -2,6 +2,7 @@
 // Protocolo:
 //   { id, action:'preview'|'save', bytes: ArrayBuffer, start, end }  -> trimReplay
 //   { id, action:'analysis', bytes: ArrayBuffer }                    -> analyzeReplay
+//   { id, action:'inspect', bytes: ArrayBuffer }                     -> inspectReplay
 //   { id, action:'saveParts', bytes: ArrayBuffer, removals:[[s,e]] } -> cutParts
 //   -> { id, action, ok:true, ...resultado } | { id, action, ok:false, error }
 'use strict';
@@ -96,6 +97,10 @@ self.onmessage = function (e) {
     if (msg.action === 'analysis') {
       const an = self.mergeCore.analyzeReplay(bytes);
       post({ ok: true, dur: an.dur, parts: an.parts, markers: an.markers });
+      return;
+    }
+    if (msg.action === 'inspect') {
+      post({ ok: true, info: self.mergeCore.inspectReplay(bytes) });
       return;
     }
     if (msg.action === 'saveParts') {

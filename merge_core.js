@@ -389,7 +389,7 @@
     };
   }
 
-  return { mergeFiles, trimReplay, cutParts, analyzeReplay };
+  return { mergeFiles, trimReplay, cutParts, analyzeReplay, inspectReplay };
 
   // ---------- recorte de replay ----------
   // Recorta un .hbr2 al intervalo de frames [start, end) (frames de replay, 30 fps).
@@ -502,6 +502,37 @@
       parts.push({ start: kicks[i], end: (i + 1 < kicks.length) ? kicks[i + 1] : dur });
     }
     return { dur, parts, markers };
+  }
+
+  // ---------- inspección de replay ----------
+  // Analiza la rec para la UI: además de lo que ya da analyzeReplay (dur, parts,
+  // markers) cuenta las acciones por tipo (constructor.name del motor), enumera los
+  // jugadores del snapshot inicial y expone el nombre de sala y estadio. Solo lee.
+  function inspectReplay(b) {
+    const an = analyzeReplay(b);
+    const rep = makeRep(b);
+    const counts = new Map();
+    let total = 0;
+    while (rep.ug) {
+      const name = rep.ug.constructor.name;
+      counts.set(name, (counts.get(name) || 0) + 1);
+      total++;
+      rep.dm();
+    }
+    const actions = [];
+    for (const [name, count] of counts) actions.push({ name, count });
+    actions.sort((a, c) => c.count - a.count);
+    const players = rep.T.K.map(function (pl) {
+      return { id: pl.Z, name: pl.D || '', country: pl.country || null, avatar: pl.Zb || null, admin: !!pl.cb, team: pl.fa ? pl.fa.ba : 0 };
+    });
+    const out = {
+      dur: an.dur, parts: an.parts, markers: an.markers,
+      actions: actions, totalActions: total,
+      players: players,
+      room: rep.T.lc || null,
+      stadium: rep.T.U && rep.T.U.D ? rep.T.U.D : null,
+    };
+    return out;
   }
 
   // ---------- recorte por partes ----------

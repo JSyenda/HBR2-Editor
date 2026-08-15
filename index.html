@@ -285,6 +285,22 @@
       <tr><th data-i18n="infoSize">Tamaño</th><td id="infoSize"></td></tr>
       <tr><th data-i18n="infoDur">Duración</th><td id="infoDur"></td></tr>
     </table>
+    <div class="actions">
+      <button class="btn" id="btnInspect" data-i18n="inspectBtn">Inspeccionar rec</button>
+    </div>
+  </div>
+
+  <div class="card hidden" id="inspectcard">
+    <h2 data-i18n="inspectTitle">Inspección de la rec</h2>
+    <table class="info-table">
+      <tr><th data-i18n="inspRoom">Sala</th><td id="inspRoom"></td></tr>
+      <tr><th data-i18n="inspStadium">Estadio</th><td id="inspStadium"></td></tr>
+      <tr><th data-i18n="inspPlayers">Jugadores</th><td id="inspPlayers"></td></tr>
+      <tr><th data-i18n="inspParts">Partes</th><td id="inspParts"></td></tr>
+      <tr><th data-i18n="inspMarkers">Marcadores</th><td id="inspMarkers"></td></tr>
+      <tr><th data-i18n="inspActions">Acciones</th><td id="inspActions"></td></tr>
+      <tr><th data-i18n="inspTop">Tipos</th><td id="inspTop"></td></tr>
+    </table>
   </div>
 
   <div class="card hidden" id="partscard">
@@ -423,6 +439,18 @@
       histImported: 'Historial importado: {n} recs.',
       histImportErr: 'error al importar: ',
       errNoHist: 'No se encontró la rec del enlace en este navegador.',
+      inspectBtn: 'Inspeccionar rec',
+      inspectTitle: 'Inspección de la rec',
+      inspectProgress: 'Inspeccionando…',
+      inspectDone: 'Inspección lista.',
+      inspRoom: 'Sala',
+      inspStadium: 'Estadio',
+      inspPlayers: 'Jugadores',
+      inspParts: 'Partes',
+      inspMarkers: 'Marcadores',
+      inspActions: 'Acciones',
+      inspTop: 'Tipos',
+      inspNA: '—',
       histClear: 'Vaciar',
       histCleared: 'Historial vaciado.',
       histDeleted: 'Borrada: {name}',
@@ -506,6 +534,18 @@
       histImported: 'History imported: {n} recordings.',
       histImportErr: 'import error: ',
       errNoHist: 'Recording from this link was not found in this browser.',
+      inspectBtn: 'Inspect recording',
+      inspectTitle: 'Recording inspection',
+      inspectProgress: 'Inspecting…',
+      inspectDone: 'Inspection ready.',
+      inspRoom: 'Room',
+      inspStadium: 'Stadium',
+      inspPlayers: 'Players',
+      inspParts: 'Parts',
+      inspMarkers: 'Markers',
+      inspActions: 'Actions',
+      inspTop: 'Types',
+      inspNA: '—',
       histClear: 'Clear',
       histCleared: 'History cleared.',
       histDeleted: 'Deleted: {name}',
@@ -549,7 +589,7 @@
     trimmed: null, trimmedKey: null, trimmedName: '',
     parts: [], partsResult: null, partsResultName: '',
     view: null, rep: null, isPreview: false, trimMarkers: null,
-    jobId: 0, analysisId: 0, worker: null
+    jobId: 0, analysisId: 0, inspectId: 0, worker: null
   };
 
   function tr(key, vars) {
@@ -844,6 +884,7 @@
     $('partsList').innerHTML = '';
     $('btnPartsSave').classList.add('hidden');
     setPartsStatus('');
+    $('inspectcard').classList.add('hidden');
     $('infocard').classList.remove('hidden');
     $('trimcard').classList.remove('hidden');
     $('playercard').classList.remove('hidden');
@@ -863,6 +904,43 @@
       getWorker().postMessage({ id: state.analysisId, action: 'analysis', bytes: bytes });
     } catch (e) { setStatus(e.message, 'error'); }
   }
+
+  function requestInspect(bytes) {
+    state.inspectId++;
+    setStatus(tr('inspectProgress'), 'running');
+    try {
+      getWorker().postMessage({ id: state.inspectId, action: 'inspect', bytes: bytes });
+    } catch (e) { setStatus(e.message, 'error'); }
+  }
+
+  function renderInspect(info) {
+    $('inspRoom').textContent = info.room || tr('inspNA');
+    $('inspStadium').textContent = info.stadium || tr('inspNA');
+    var pl = info.players || [];
+    $('inspPlayers').textContent = pl.length
+      ? pl.length + ': ' + pl.map(function (p) {
+        var t = p.team === 1 ? '●' : (p.team === 2 ? '◓' : '○');
+        return p.name + ' (' + p.id + ') ' + t;
+      }).join(', ')
+      : '0';
+    var parts = info.parts || [];
+    $('inspParts').textContent = parts.length
+      ? parts.length + ': ' + parts.map(function (p) { return fmtTime(p.start) + '–' + fmtTime(p.end); }).join(' · ')
+      : '0';
+    $('inspMarkers').textContent = (info.markers || []).length;
+    $('inspActions').textContent = info.totalActions;
+    var acts = info.actions || [];
+    var show = acts.slice(0, 6);
+    $('inspTop').textContent = show.map(function (a) { return a.name + ' × ' + a.count; }).join(' · ')
+      + (acts.length > show.length ? ' …' : '');
+    $('inspectcard').classList.remove('hidden');
+    setStatus(tr('inspectDone'), 'ok');
+  }
+
+  $('btnInspect').addEventListener('click', function () {
+    if (!state.bytes) return;
+    requestInspect(state.bytes);
+  });
 
   function getSelectedParts() {
     var out = [], rows = document.querySelectorAll('.partcb');
@@ -1061,6 +1139,13 @@
       } else if (autoParts && state.autoPartsDone) {
         document.title = 'PARTS_DONE_' + state.parts.length;
       }
+      return;
+    }
+    if (m.action === 'inspect') {
+      if (m.id !== state.inspectId) return;
+      state.inspectId = 0;
+      if (!m.ok) { setStatus(tr('errTrim') + m.error, 'error'); return; }
+      renderInspect(m.info);
       return;
     }
     if (m.id !== state.jobId) return;
