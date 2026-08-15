@@ -720,6 +720,7 @@
   function teardown() {
     if (state.view) { try { state.view.la(); } catch (e) {} }
     state.view = null; state.rep = null; state.trimMarkers = null; state.cmpBox = null;
+    state.removedMap = null;
     window._pxy_rep = null; window._pxy_view = null;
     $('player').innerHTML = '';
   }
@@ -796,7 +797,7 @@
     }
   }
 
-  function addSeekDrag(view, rep, tb, onSeek, skipSnap) {
+  function addSeekDrag(view, rep, tb, onSeek, seekMap) {
     var ctrl = view.te, tl = tb.querySelector('.timetooltip');
     function frac(clientX) {
       var r = tb.getBoundingClientRect();
@@ -805,7 +806,20 @@
     function seekAt(clientX) {
       var pos = Math.max(0, Math.min(1, frac(clientX)));
       var target = pos * rep.uh * rep.Bf;
-      if (skipSnap) target = skipRemoved(target);
+      if (seekMap) {
+        // La barra muestra el timeline original: el clic cae en frames del original.
+        var of = Math.round(pos * seekMap.dur);
+        var tf = origToTrim(seekMap, of);
+        if (tf < 0) {
+          // Dentro de un tramo eliminado: saltar al final de ese tramo.
+          for (var i = 0; i < seekMap.ranges.length; i++) {
+            var r = seekMap.ranges[i];
+            if (of >= r[0] && of < r[1]) { of = r[1]; break; }
+          }
+          tf = origToTrim(seekMap, of);
+        }
+        target = tf * rep.uh;
+      }
       try { rep.Qr(target); } catch (e) {}
       if (onSeek) { try { onSeek(target); } catch (e) {} }
       if (ctrl && !ctrl.lg) { ctrl.lg = true; if (ctrl.Gq) ctrl.Gq(); if (ctrl.El) ctrl.El(); }
@@ -819,7 +833,8 @@
     tb.onmousemove = function (e) {
       var t = Math.max(0, Math.min(1, frac(e.clientX)));
       if (tl) {
-        var s = rep.Bf * rep.uh * t / 1000 | 0;
+        var f = seekMap ? Math.round(t * seekMap.dur) : Math.round(t * rep.Bf);
+        var s = f * rep.uh / 1000 | 0;
         tl.textContent = (s / 60 | 0) + ':' + ('0' + s % 60).slice(-2);
         tl.style.left = 'calc(' + (100 * t) + '% - 30px)';
       }
@@ -855,10 +870,6 @@
         view._pxyV = function () {
           try {
             view.l.A(rep);
-            if (state.viewMode === 'removed') {
-              var sk = skipRemoved(rep.Ub);
-              if (sk !== rep.Ub) { try { rep.Qr(sk); } catch (e) {} }
-            }
             var ra = window._pxy_ra, ub = rep.Ub, last = window._pxy_lastUb;
             if (ra && ra.qp && ub > last) {
               var goals = rep.pl || [], total = rep.uh * rep.Bf;
@@ -876,6 +887,20 @@
         ? function () { teardown(); }
         : function () { try { if (view.l.f.parentNode) view.l.f.parentNode.removeChild(view.l.f); } catch (e) {} };
       if (isMain) { state.view = view; state.rep = rep; }
+      var seekMap = null;
+      if (isMain && opts && opts.removed) {
+        // Vista "tramo eliminado": se monta el resultado recortado (reproducción
+        // exacta de la rec recortada) pero la barra muestra el timeline original.
+        state.removedMap = seekMap = buildMap();
+        rep.op = function () { return trimToOrig(state.removedMap, this.Y) / state.dur; };
+        var _teA = view.te.A;
+        view.te.A = function () {
+          _teA.call(view.te);
+          if (state.viewMode === 'removed' && state.removedMap) {
+            view.te.rs.textContent = fmtTime(trimToOrig(state.removedMap, rep.Y));
+          }
+        };
+      }
       view.l.f.style.position = 'absolute';
       view.l.f.style.width = '100%';
       view.l.f.style.height = '100%';
@@ -896,7 +921,15 @@
             state.cmpBox = box;
           }
         }
-        addSeekDrag(view, rep, tb, opts && opts.onSeek, isMain);
+        if (seekMap) {
+          var gms = tb.querySelectorAll('.marker:not(.trim-marker)');
+          var goals = rep.pl || [];
+          for (var i = 0; i < gms.length && i < goals.length; i++) {
+            var gf = Math.round(goals[i].Dj * rep.Bf);
+            gms[i].style.left = (trimToOrig(seekMap, gf) / seekMap.dur * 100) + '%';
+          }
+        }
+        addSeekDrag(view, rep, tb, opts && opts.onSeek, seekMap);
       }
       addPlayerExtras(view.l.f);
       if (isMain) updateMarkers();
@@ -916,24 +949,53 @@
     return [[0, state.start], [state.end, state.dur]];
   }
 
-  // Si el playhead cae dentro de un tramo eliminado, lo salta hasta el final del
-  // tramo: en la vista "tramo eliminado" la reproducción se comporta como la rec
-  // recortada pero sobre el timeline original completo (con el tramo en rojo).
-  function skipRemoved(ub) {
-    var rep = state.rep;
-    if (!rep || state.viewMode !== 'removed') return ub;
-    var ranges = getRemovedRanges();
-    if (!ranges) return ub;
-    var uh = rep.uh;
+  // Mapeo entre el timeline del original y el del resultado (vista "tramo
+  // eliminado"): el juego se monta con la rec recortada, la barra muestra el
+  // original. kept = segmentos conservados [ks,ke); keptTotal = frames resultantes.
+  function buildMap() {
+    var ranges = (getRemovedRanges() || []).slice().sort(function (x, y) { return x[0] - y[0]; });
+    var kept = [], dur = state.dur, prev = 0, keptTotal = 0;
     for (var i = 0; i < ranges.length; i++) {
-      var a = ranges[i][0] * uh, b = ranges[i][1] * uh;
-      if (ub >= a && ub < b) return b;
+      var a = ranges[i][0], b = ranges[i][1];
+      if (a > prev) { kept.push([prev, a]); keptTotal += a - prev; }
+      if (b > prev) prev = b;
     }
-    return ub;
+    if (prev < dur) { kept.push([prev, dur]); keptTotal += dur - prev; }
+    return { ranges: ranges, kept: kept, dur: dur, keptTotal: keptTotal };
+  }
+
+  // Frame del resultado correspondiente a un frame del original; -1 si cae en un
+  // tramo eliminado (la llamada decide el destino, p. ej. el empalme del tramo).
+  function origToTrim(map, f) {
+    for (var i = 0; i < map.ranges.length; i++) {
+      var a = map.ranges[i][0], b = map.ranges[i][1];
+      if (f >= a && f < b) return -1;
+    }
+    if (f >= map.dur) return map.keptTotal;
+    var o = 0;
+    for (var i = 0; i < map.kept.length; i++) {
+      var ks = map.kept[i][0], ke = map.kept[i][1];
+      if (f < ke) return o + (f - ks);
+      o += ke - ks;
+    }
+    return map.keptTotal;
+  }
+
+  // Frame del original correspondiente a un frame del resultado. El final del
+  // resultado (t == keptTotal) mapea al final del último segmento conservado.
+  function trimToOrig(map, t) {
+    if (t < 0) t = 0;
+    var o = 0;
+    for (var i = 0; i < map.kept.length; i++) {
+      var ks = map.kept[i][0], ke = map.kept[i][1], len = ke - ks;
+      if (t < o + len || (i === map.kept.length - 1 && t <= o + len)) return ks + (t - o);
+      o += len;
+    }
+    return map.dur;
   }
 
   // Pinta en rojo apagado los tramos eliminados sobre la barra del player.
-  // Solo se muestran en la vista "tramo eliminado" (que monta el original).
+  // Solo se muestran en la vista "tramo eliminado" (resultado sobre el original).
   function updateCompareRegion() {
     var box = state.cmpBox;
     if (!box) return;
@@ -963,22 +1025,27 @@
   }
 
   // Cambia la vista del player: 'original' (rec completa), 'trimmed' (resultado)
-  // o 'removed' (original + tramo eliminado en rojo + salto al reproducir).
-  function setViewMode(mode) {
-    if (mode === state.viewMode) { updateCompareRegion(); return; }
+  // o 'removed' (resultado sobre el timeline original con el tramo en rojo).
+  // force: remonta aunque ya esté en esa vista (p. ej. tras calcular un resultado
+  // nuevo estando en "tramo eliminado", el player debe montar la nueva rec).
+  function setViewMode(mode, force) {
+    if (!force && mode === state.viewMode) { updateCompareRegion(); return; }
     if (mode !== 'original' && !(state.trimmed || state.partsResult)) {
       setStatus(tr('viewNoResult'), 'error');
       return;
     }
     state.viewMode = mode;
-    if (mode === 'trimmed') mountPlayer(state.trimmed || state.partsResult, {});
-    else mountPlayer(state.bytes, {});
+    if (mode === 'original') mountPlayer(state.bytes, {});
+    else if (mode === 'trimmed') mountPlayer(state.trimmed || state.partsResult, {});
+    else mountPlayer(state.trimmed || state.partsResult, { removed: true });
     updatePlayerBar();
   }
 
   window._pxy_removedRanges = getRemovedRanges;
   window._pxy_trimmedKey = function () { return state.trimmedKey; };
-  window._pxy_skipRemoved = skipRemoved;
+  window._pxy_origToTrim = function (f) { return state.removedMap ? origToTrim(state.removedMap, f) : -1; };
+  window._pxy_trimToOrig = function (t) { return state.removedMap ? trimToOrig(state.removedMap, t) : -1; };
+  window._pxy_origDur = function () { return state.dur; };
   window._pxy_viewMode = function () { return state.viewMode; };
 
   function updatePlayerBar() {
@@ -1327,7 +1394,7 @@
       $('outNameParts').classList.remove('hidden');
       $('outNameParts').value = state.partsResultName;
       setPartsStatus('');
-      setViewMode('removed');
+      setViewMode('removed', true);
       var pdur = readHeader(state.partsResult).dur;
       setStatus(tr('partsDone', { frames: pdur }), 'ok');
       requestAnalysis(state.partsResult);
@@ -1341,7 +1408,7 @@
       : stem(state.name) + (lang === 'es' ? '_recortado' : '_trimmed') + '.hbr2';
     $('outNameTrim').value = state.trimmedName;
     // Vista por defecto tras calcular el resultado: tramo eliminado en rojo.
-    setViewMode('removed');
+    setViewMode('removed', true);
     if (m.action === 'preview' || m.action === 'previewCut') {
       setStatus(tr('statusPreviewDone', { frames: state.end - state.start }) + verifySuffix(), 'ok');
     } else {
