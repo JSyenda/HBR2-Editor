@@ -1,9 +1,10 @@
 // trim-worker.js — Web Worker que analiza y recorta un .hbr2 en segundo plano.
 // Protocolo:
-//   { id, action:'preview'|'save', bytes: ArrayBuffer, start, end }  -> trimReplay
-//   { id, action:'analysis', bytes: ArrayBuffer }                    -> analyzeReplay
-//   { id, action:'inspect', bytes: ArrayBuffer }                     -> inspectReplay
-//   { id, action:'saveParts', bytes: ArrayBuffer, removals:[[s,e]] } -> cutParts
+//   { id, action:'preview'|'save', bytes: ArrayBuffer, start, end }            -> trimReplay
+//   { id, action:'previewCut'|'saveCut', bytes: ArrayBuffer, start, end }      -> cutParts([start,end))
+//   { id, action:'analysis', bytes: ArrayBuffer }                              -> analyzeReplay
+//   { id, action:'inspect', bytes: ArrayBuffer }                               -> inspectReplay
+//   { id, action:'saveParts', bytes: ArrayBuffer, removals:[[s,e]] }           -> cutParts
 //   -> { id, action, ok:true, ...resultado } | { id, action, ok:false, error }
 'use strict';
 
@@ -105,6 +106,11 @@ self.onmessage = function (e) {
     }
     if (msg.action === 'saveParts') {
       const out = self.mergeCore.cutParts(bytes, msg.removals || []);
+      post({ ok: true, size: out.length, bytes: out.buffer }, [out.buffer]);
+      return;
+    }
+    if (msg.action === 'saveCut' || msg.action === 'previewCut') {
+      const out = self.mergeCore.cutParts(bytes, [[msg.start, msg.end]]);
       post({ ok: true, size: out.length, bytes: out.buffer }, [out.buffer]);
       return;
     }

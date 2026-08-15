@@ -73,6 +73,10 @@
   .info-table th, .info-table td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); font-size:13px; }
   .info-table th { color:var(--mut); font-weight:600; width:150px; }
   .info-table td { word-break:break-all; }
+  .modes { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+  .modes label { display:flex; align-items:center; gap:6px; padding:6px 12px; border:1px solid var(--line, #2d3443); border-radius:8px; cursor:pointer; color:var(--mut, #b9c7dd); font-size:13px; }
+  .modes label.active { border-color:#3a5bd9; color:inherit; }
+  .modes input { accent-color:#3a5bd9; }
   .trimrow { display:flex; gap:16px; flex-wrap:wrap; }
   .trimcol { flex:1; min-width:260px; }
   .trimcol label { display:block; font-size:13px; color:var(--mut); font-weight:600; margin-bottom:6px; }
@@ -319,6 +323,10 @@
 
   <div class="card hidden" id="trimcard">
     <h2>Recorte</h2>
+    <div class="modes">
+      <label id="modeTrimLbl" class="active"><input type="radio" name="cutMode" value="trim" checked><span data-i18n="modeTrim">Recorte [inicio, fin)</span></label>
+      <label id="modeCutLbl"><input type="radio" name="cutMode" value="cut"><span data-i18n="modeCut">Eliminar tramo [a, b)</span></label>
+    </div>
     <div class="trimrow">
       <div class="trimcol">
         <label data-i18n="lblStart">Inicio</label>
@@ -451,6 +459,11 @@
       inspActions: 'Acciones',
       inspTop: 'Tipos',
       inspNA: '—',
+      modeTrim: 'Recorte [inicio, fin)',
+      modeCut: 'Eliminar tramo [a, b)',
+      regionCut: 'Se eliminará: {s} → {e} · {n} frames',
+      repRangeCut: 'Eliminar {a} → {b} ({n} f)',
+      histOpCut: 'Tramo',
       histClear: 'Vaciar',
       histCleared: 'Historial vaciado.',
       histDeleted: 'Borrada: {name}',
@@ -546,6 +559,11 @@
       inspActions: 'Actions',
       inspTop: 'Types',
       inspNA: '—',
+      modeTrim: 'Trim [start, end)',
+      modeCut: 'Cut segment [a, b)',
+      regionCut: 'Will remove: {s} → {e} · {n} frames',
+      repRangeCut: 'Remove {a} → {b} ({n} f)',
+      histOpCut: 'Cut',
       histClear: 'Clear',
       histCleared: 'History cleared.',
       histDeleted: 'Deleted: {name}',
@@ -585,7 +603,7 @@
 
   var state = {
     bytes: null, name: '', dur: 0,
-    start: 0, end: 0,
+    start: 0, end: 0, cutMode: 'trim',
     trimmed: null, trimmedKey: null, trimmedName: '',
     parts: [], partsResult: null, partsResultName: '',
     view: null, rep: null, isPreview: false, trimMarkers: null,
@@ -862,10 +880,17 @@
     var pct = state.start / dur * 100, w = (state.end - state.start) / dur * 100;
     var sel = $('selRegion');
     sel.style.left = pct + '%'; sel.style.width = w + '%';
-    $('trimInfo').textContent = tr('region', {
-      s: fmtTime(state.start), e: fmtTime(state.end), n: state.end - state.start
-    });
-    $('noteHead').style.display = state.start > 0 ? '' : 'none';
+    if (state.cutMode === 'cut') {
+      $('trimInfo').textContent = tr('regionCut', {
+        s: fmtTime(state.start), e: fmtTime(state.end), n: state.end - state.start
+      });
+      $('noteHead').style.display = 'none';
+    } else {
+      $('trimInfo').textContent = tr('region', {
+        s: fmtTime(state.start), e: fmtTime(state.end), n: state.end - state.start
+      });
+      $('noteHead').style.display = state.start > 0 ? '' : 'none';
+    }
     updateMarkers();
   }
 
@@ -873,6 +898,15 @@
   $('endRange').addEventListener('input', function () { state.end = parseInt($('endRange').value, 10); syncRanges(); });
   $('startNum').addEventListener('change', function () { state.start = parseInt($('startNum').value, 10) || 0; syncRanges(); });
   $('endNum').addEventListener('change', function () { state.end = parseInt($('endNum').value, 10) || state.dur; syncRanges(); });
+
+  document.querySelectorAll('input[name="cutMode"]').forEach(function (r) {
+    r.addEventListener('change', function () {
+      state.cutMode = r.value;
+      $('modeTrimLbl').classList.toggle('active', state.cutMode === 'trim');
+      $('modeCutLbl').classList.toggle('active', state.cutMode === 'cut');
+      syncRanges();
+    });
+  });
 
   function loadBytes(bytes, name) {
     var hdr = readHeader(bytes);
@@ -1052,7 +1086,7 @@
       list.forEach(function (r) {
         var row = document.createElement('div'); row.className = 'hist-row';
         var op = document.createElement('span'); op.className = 'hist-op';
-        op.textContent = tr(r.op === 'parts' ? 'histOpParts' : 'histOpTrim');
+        op.textContent = tr(histOpLabel(r.op));
         var open = document.createElement('button'); open.type = 'button'; open.className = 'hist-open';
         open.title = tr('histOpen');
         open.textContent = r.srcName + ' → ' + r.name;
@@ -1117,7 +1151,8 @@
       if (state.end <= state.start) throw new Error(tr('errRange'));
       state.jobId++;
       setStatus(tr('statusTrimming'), 'running');
-      getWorker().postMessage({ id: state.jobId, action: action, bytes: state.bytes, start: state.start, end: state.end });
+      var act = state.cutMode === 'cut' ? action + 'Cut' : action;
+      getWorker().postMessage({ id: state.jobId, action: act, bytes: state.bytes, start: state.start, end: state.end });
     } catch (e) { setStatus(e.message, 'error'); }
   }
 
@@ -1170,9 +1205,11 @@
     }
     state.trimmed = new Uint8Array(m.bytes);
     state.trimmedKey = state.start + ':' + state.end;
-    state.trimmedName = stem(state.name) + (lang === 'es' ? '_recortado' : '_trimmed') + '.hbr2';
+    state.trimmedName = (m.action === 'saveCut' || m.action === 'previewCut')
+      ? stem(state.name) + (lang === 'es' ? '_tramo' : '_cut') + '.hbr2'
+      : stem(state.name) + (lang === 'es' ? '_recortado' : '_trimmed') + '.hbr2';
     $('outNameTrim').value = state.trimmedName;
-    if (m.action === 'preview') {
+    if (m.action === 'preview' || m.action === 'previewCut') {
       state.isPreview = false;
       mountPlayer(state.trimmed, { preview: true });
       updatePlayerBar();
@@ -1195,7 +1232,7 @@
   function downloadTrim() {
     var name = resultName(state.trimmedName);
     download(name, state.trimmed);
-    saveEdit('trim', state.trimmed, state.name, name, { start: state.start, end: state.end });
+    saveEdit(state.cutMode === 'cut' ? 'cut' : 'trim', state.trimmed, state.name, name, { start: state.start, end: state.end });
     setStatus(tr('statusSaved', { name: name }) + ' · ' + fmt(state.trimmed.length), 'ok');
   }
 
@@ -1216,18 +1253,20 @@
       resName: '',
       resDur: 0,
       resSize: 0,
-      opLabel: tr(op === 'parts' ? 'histOpParts' : 'histOpTrim')
+      opLabel: tr(histOpLabel(op))
     };
     if (op === 'parts' && state.partsResult) {
       r.resName = resultName(state.partsResultName);
       r.resDur = readHeader(state.partsResult).dur;
       r.resSize = state.partsResult.length;
       r.range = '';
-    } else if (op === 'trim' && state.trimmed) {
+    } else if ((op === 'trim' || op === 'cut') && state.trimmed) {
       r.resName = resultName(state.trimmedName);
       r.resDur = readHeader(state.trimmed).dur;
       r.resSize = state.trimmed.length;
-      r.range = fmtTime(state.start) + ' → ' + fmtTime(state.end) + ' (' + (state.end - state.start) + ' f)';
+      r.range = op === 'cut'
+        ? tr('repRangeCut', { a: fmtTime(state.start), b: fmtTime(state.end), n: state.end - state.start })
+        : fmtTime(state.start) + ' → ' + fmtTime(state.end) + ' (' + (state.end - state.start) + ' f)';
     }
     $('repOp').textContent = r.opLabel;
     $('repDate').textContent = r.date;
@@ -1237,6 +1276,8 @@
     $('repSize').textContent = fmt(r.size) + ' → ' + fmt(r.resSize);
     $('repVerify').textContent = tr('repVerifyNA');
   }
+
+  function histOpLabel(op) { return op === 'parts' ? 'histOpParts' : (op === 'cut' ? 'histOpCut' : 'histOpTrim'); }
 
   var reportOpen = false;
   function toggleReport(op) {
@@ -1253,7 +1294,7 @@
     $('btnReportParts').textContent = tr('reportHide');
     reportOpen = true;
   }
-  $('btnReportTrim').addEventListener('click', function () { toggleReport('trim'); });
+  $('btnReportTrim').addEventListener('click', function () { toggleReport(state.cutMode === 'cut' ? 'cut' : 'trim'); });
   $('btnReportParts').addEventListener('click', function () { toggleReport('parts'); });
 
   $('btnPreview').addEventListener('click', function () { startTrim('preview'); });
@@ -1323,7 +1364,7 @@
         Promise.all(data.edits.map(function (r) {
           return window.HBRDB.saveEdit({
             id: String(r.id), createdAt: r.createdAt || Date.now(),
-            op: r.op === 'parts' ? 'parts' : 'trim',
+            op: r.op === 'parts' ? 'parts' : (r.op === 'cut' ? 'cut' : 'trim'),
             srcName: r.srcName || '', name: r.name || 'rec.hbr2',
             size: r.size || 0, dur: r.dur || 0, params: r.params || null,
             data: b64ToBytes(r.data)
