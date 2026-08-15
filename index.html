@@ -482,6 +482,10 @@
       repSize: 'Tamaño',
       repVerify: 'Verificación',
       repVerifyNA: '—',
+      verifyOk: 'SUPERADA · {n} frames comparados',
+      verifyFail: 'FALLO · {n} frames · {m} divergencias',
+      verifyCrash: 'ERROR del motor al reproducir (frame {k})',
+      verifySkip: '— (inicio no comparable)',
       themeTitle: 'Cambiar tema (T)',
       ks: 'Atajos: <b>P</b> previsualizar · <b>S</b> guardar · <b>O</b> original · <b>T</b> tema · <b>H</b> historial · <b>Esc</b> cerrar',
       errMagic: 'no es un .hbr2 (magic HBR2 no encontrado)',
@@ -582,6 +586,10 @@
       repSize: 'Size',
       repVerify: 'Verification',
       repVerifyNA: '—',
+      verifyOk: 'PASSED · {n} frames compared',
+      verifyFail: 'FAILED · {n} frames · {m} mismatches',
+      verifyCrash: 'Engine error while replaying (frame {k})',
+      verifySkip: '— (start not comparable)',
       themeTitle: 'Toggle theme (T)',
       ks: 'Shortcuts: <b>P</b> preview · <b>S</b> save · <b>O</b> original · <b>T</b> theme · <b>H</b> history · <b>Esc</b> close',
       errMagic: 'not an .hbr2 (HBR2 magic not found)',
@@ -604,7 +612,7 @@
   var state = {
     bytes: null, name: '', dur: 0,
     start: 0, end: 0, cutMode: 'trim',
-    trimmed: null, trimmedKey: null, trimmedName: '',
+    trimmed: null, trimmedKey: null, trimmedName: '', verify: null,
     parts: [], partsResult: null, partsResultName: '',
     view: null, rep: null, isPreview: false, trimMarkers: null,
     jobId: 0, analysisId: 0, inspectId: 0, worker: null
@@ -913,7 +921,7 @@
     teardown();
     state.bytes = bytes; state.name = name; state.dur = hdr.dur;
     state.start = 0; state.end = hdr.dur;
-    state.trimmed = null; state.trimmedKey = null;
+    state.trimmed = null; state.trimmedKey = null; state.verify = null;
     state.parts = []; state.partsResult = null; state.partsResultName = '';
     $('partsList').innerHTML = '';
     $('btnPartsSave').classList.add('hidden');
@@ -1190,6 +1198,7 @@
       state.partsResult = new Uint8Array(m.bytes);
       state.partsResultName = stem(state.name) + (lang === 'es' ? '_sin_partes' : '_parts_removed') + '.hbr2';
       state.trimmedName = state.partsResultName;
+      state.verify = m.verify || null;
       $('btnPartsSave').classList.remove('hidden');
       $('btnReportParts').classList.remove('hidden');
       $('outNameParts').classList.remove('hidden');
@@ -1205,6 +1214,7 @@
     }
     state.trimmed = new Uint8Array(m.bytes);
     state.trimmedKey = state.start + ':' + state.end;
+    state.verify = m.verify || null;
     state.trimmedName = (m.action === 'saveCut' || m.action === 'previewCut')
       ? stem(state.name) + (lang === 'es' ? '_tramo' : '_cut') + '.hbr2'
       : stem(state.name) + (lang === 'es' ? '_recortado' : '_trimmed') + '.hbr2';
@@ -1213,7 +1223,7 @@
       state.isPreview = false;
       mountPlayer(state.trimmed, { preview: true });
       updatePlayerBar();
-      setStatus(tr('statusPreviewDone', { frames: state.end - state.start }), 'ok');
+      setStatus(tr('statusPreviewDone', { frames: state.end - state.start }) + verifySuffix(), 'ok');
     } else {
       downloadTrim();
     }
@@ -1233,14 +1243,14 @@
     var name = resultName(state.trimmedName);
     download(name, state.trimmed);
     saveEdit(state.cutMode === 'cut' ? 'cut' : 'trim', state.trimmed, state.name, name, { start: state.start, end: state.end });
-    setStatus(tr('statusSaved', { name: name }) + ' · ' + fmt(state.trimmed.length), 'ok');
+    setStatus(tr('statusSaved', { name: name }) + ' · ' + fmt(state.trimmed.length) + verifySuffix(), 'ok');
   }
 
   function downloadParts() {
     var name = resultName(state.partsResultName);
     download(name, state.partsResult);
     saveEdit('parts', state.partsResult, state.name, name, null);
-    setStatus(tr('statusSaved', { name: name }) + ' · ' + fmt(state.partsResult.length), 'ok');
+    setStatus(tr('statusSaved', { name: name }) + ' · ' + fmt(state.partsResult.length) + verifySuffix(), 'ok');
   }
 
   function fillReport(op) {
@@ -1274,7 +1284,24 @@
     $('repRange').textContent = r.range || '—';
     $('repFrames').textContent = (op === 'parts' ? r.resDur : state.dur) + ' → ' + r.resDur;
     $('repSize').textContent = fmt(r.size) + ' → ' + fmt(r.resSize);
-    $('repVerify').textContent = tr('repVerifyNA');
+    $('repVerify').textContent = reportVerify();
+  }
+
+  function verifySuffix() {
+    var v = state.verify;
+    if (!v) return '';
+    if (v.ok && v.mode === 'skip') return ' · ' + tr('verifySkip');
+    if (v.ok) return ' · ' + tr('verifyOk', { n: v.frames });
+    return ' · ' + tr('verifyFail', { n: v.frames, m: v.mismatches });
+  }
+
+  function reportVerify() {
+    var v = state.verify;
+    if (!v) return tr('repVerifyNA');
+    if (v.crashed) return tr('verifyCrash', { k: v.crashed });
+    if (v.ok && v.mode === 'skip') return tr('verifySkip');
+    if (v.ok) return tr('verifyOk', { n: v.frames });
+    return tr('verifyFail', { n: v.frames, m: v.mismatches });
   }
 
   function histOpLabel(op) { return op === 'parts' ? 'histOpParts' : (op === 'cut' ? 'histOpCut' : 'histOpTrim'); }

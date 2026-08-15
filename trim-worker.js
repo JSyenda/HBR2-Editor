@@ -1,11 +1,11 @@
 // trim-worker.js — Web Worker que analiza y recorta un .hbr2 en segundo plano.
 // Protocolo:
-//   { id, action:'preview'|'save', bytes: ArrayBuffer, start, end }            -> trimReplay
-//   { id, action:'previewCut'|'saveCut', bytes: ArrayBuffer, start, end }      -> cutParts([start,end))
+//   { id, action:'preview'|'save', bytes: ArrayBuffer, start, end }            -> trimReplay (+verify)
+//   { id, action:'previewCut'|'saveCut', bytes: ArrayBuffer, start, end }      -> cutParts([start,end)) (+verify)
 //   { id, action:'analysis', bytes: ArrayBuffer }                              -> analyzeReplay
 //   { id, action:'inspect', bytes: ArrayBuffer }                               -> inspectReplay
-//   { id, action:'saveParts', bytes: ArrayBuffer, removals:[[s,e]] }           -> cutParts
-//   -> { id, action, ok:true, ...resultado } | { id, action, ok:false, error }
+//   { id, action:'saveParts', bytes: ArrayBuffer, removals:[[s,e]] }           -> cutParts (+verify)
+//   -> { id, action, ok:true, ...resultado, verify } | { id, action, ok:false, error }
 'use strict';
 
 // ---------- stubs de navegador mínimos que exige game-min_patched.js ----------
@@ -106,16 +106,19 @@ self.onmessage = function (e) {
     }
     if (msg.action === 'saveParts') {
       const out = self.mergeCore.cutParts(bytes, msg.removals || []);
-      post({ ok: true, size: out.length, bytes: out.buffer }, [out.buffer]);
+      const verify = self.mergeCore.verifyCut(bytes, msg.removals || [], out);
+      post({ ok: true, size: out.length, bytes: out.buffer, verify }, [out.buffer]);
       return;
     }
     if (msg.action === 'saveCut' || msg.action === 'previewCut') {
       const out = self.mergeCore.cutParts(bytes, [[msg.start, msg.end]]);
-      post({ ok: true, size: out.length, bytes: out.buffer }, [out.buffer]);
+      const verify = self.mergeCore.verifyCut(bytes, [[msg.start, msg.end]], out);
+      post({ ok: true, size: out.length, bytes: out.buffer, verify }, [out.buffer]);
       return;
     }
     const out = self.mergeCore.trimReplay(bytes, msg.start, msg.end);
-    post({ ok: true, size: out.length, bytes: out.buffer }, [out.buffer]);
+    const verify = self.mergeCore.verifyTrim(bytes, msg.start, msg.end, out);
+    post({ ok: true, size: out.length, bytes: out.buffer, verify }, [out.buffer]);
   } catch (err) {
     post({ ok: false, error: String(err && err.message ? err.message : err) });
   }

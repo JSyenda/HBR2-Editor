@@ -59,6 +59,10 @@
   function varintLen(v) { v >>>= 0; let n = 1; while (v >= 0x80) { v >>>= 7; n++; } return n; }
   function concatBytes(arrs) { let len = 0; for (const a of arrs) len += a.length; const out = new Uint8Array(len); let o = 0; for (const a of arrs) { out.set(a, o); o += a.length; } return out; }
   function bufEq(a, b) { if (a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; }
+  function readHeader(b) {
+    const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    return { magic: dv.getUint32(0, false), ver: dv.getUint32(4, false), dur: dv.getUint32(8, false) };
+  }
 
   // ---------- motor ----------
   // La engine lee el tiempo de window.performance.now(): instalamos nuestro reloj sobre
@@ -389,7 +393,7 @@
     };
   }
 
-  return { mergeFiles, trimReplay, cutParts, analyzeReplay, inspectReplay };
+  return { mergeFiles, trimReplay, cutParts, analyzeReplay, inspectReplay, verifyTrim, verifyCut };
 
   // ---------- recorte de replay ----------
   // Recorta un .hbr2 al intervalo de frames [start, end) (frames de replay, 30 fps).
@@ -533,6 +537,85 @@
       stadium: rep.T.U && rep.T.U.D ? rep.T.U.D : null,
     };
     return out;
+  }
+
+  // ---------- verificación lockstep ----------
+  // Compara el estado del original con el del resultado editado en los frames donde el
+  // resultado es byte-comparable: recorte por el inicio (start=0) y tramos anteriores al
+  // primer corte. En el resto (head descartado al recortar por el inicio, costura tras un
+  // corte interno) la física continúa desde el estado previo y no hay paridad que exigir.
+  function snapState(state) {
+    const M = state.M;
+    const ball = M && M.va && M.va.H ? M.va.H[0] : null;
+    return {
+      M: M ? 'y' : 'n', Ta: M ? M.Ta : null, Ob: M ? M.Ob : null, Tb: M ? M.Tb : null, Cb: M ? M.Cb : null,
+      Bc: state.Bc, mb: state.mb, Ga: state.Ga,
+      K: state.K.map(p => p.Z + ':' + (p.fa ? p.fa.ba : 0)).join(','),
+      ball: ball ? [ball.a.x, ball.a.y, ball.V, ball.o, ball.ca, ball.Ea, ball.S, ball.i, ball.C].join(',') : 'null',
+    };
+  }
+  function sampleFrames(n) {
+    const s = [1, 2, 3, 5, 10, 50, 200, 500, 1000, 2000, 5000, 10000, 20000, 30000, 40000, 50000];
+    return s.concat([n]).filter(k => k >= 1 && k <= n);
+  }
+  function verifyLockstep(orig, edited, mapK) {
+    const len = readHeader(edited).dur;
+    const orep = makeRep(orig);
+    const erep = makeRep(edited);
+    const K = sampleFrames(len);
+    let compared = 0, mismatches = 0, crashed = null;
+    const firstBad = [];
+    for (let k = 1; k <= len; k++) {
+      try { _now = erep.hi + 3.3333333333333335; erep.A(); } catch (e) { crashed = k; break; }
+      const ok2 = mapK(k);
+      if (ok2 === null) continue;
+      try { _now = orep.hi + 3.3333333333333335; orep.A(); } catch (e) { crashed = k; break; }
+      if (K.indexOf(k) !== -1) {
+        compared++;
+        if (JSON.stringify(snapState(erep.T)) !== JSON.stringify(snapState(orep.T))) {
+          mismatches++;
+          if (firstBad.length < 3) firstBad.push(k);
+        }
+      }
+    }
+    return {
+      ok: mismatches === 0 && crashed === null,
+      mode: crashed !== null ? 'crash' : (compared ? 'lockstep' : 'skip'),
+      frames: compared, mismatches, firstBad, crashed,
+    };
+  }
+
+  function verifyTrim(b, start, end, out) {
+    if (!out) out = trimReplay(b, start, end);
+    const mapK = start === 0 ? function (k) { return k; } : function () { return null; };
+    const v = verifyLockstep(b, out, mapK);
+    v.dur = readHeader(out).dur;
+    return v;
+  }
+
+  function verifyCut(b, removals, out) {
+    if (!out) out = cutParts(b, removals);
+    const dur = readHeader(b).dur;
+    const rs = [];
+    for (const r of (removals || [])) {
+      const s = Math.max(0, Math.floor(r[0] | 0));
+      const e = Math.min(dur, Math.ceil(r[1] | 0));
+      if (e > s) rs.push([s, e]);
+    }
+    rs.sort((a, c) => a[0] - c[0]);
+    const merged = [];
+    for (const r of rs) {
+      const last = merged[merged.length - 1];
+      if (last && r[0] <= last[1]) { if (r[1] > last[1]) last[1] = r[1]; }
+      else merged.push([r[0], r[1]]);
+    }
+    const until = merged.length ? merged[0][0] : dur;
+    const mapK = until > 0
+      ? function (k) { if (k >= until) return null; let o = k; for (const r of merged) { if (o >= r[0]) o += r[1] - r[0]; } return o; }
+      : function () { return null; };
+    const v = verifyLockstep(b, out, mapK);
+    v.dur = readHeader(out).dur;
+    return v;
   }
 
   // ---------- recorte por partes ----------
