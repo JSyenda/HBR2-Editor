@@ -103,6 +103,14 @@
   .rename-input:focus { border-color:var(--acc); outline:none; }
   .spacer { flex:1; }
   #trimInfo { font-size:13px; color:var(--mut); font-variant-numeric:tabular-nums; }
+  #playerbar { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+  #playerbar .btn { padding:6px 12px; font-size:13px; }
+  #comparecard { display:flex; flex-direction:column; gap:10px; }
+  .compare-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .compare-col { min-width:0; }
+  .compare-title { font-size:12px; color:var(--mut); font-weight:700; margin-bottom:6px; text-align:center; }
+  .compare-player { position:relative; width:100%; aspect-ratio:16/10; border:1px solid var(--line);
+    border-radius:8px; overflow:hidden; background:#000; }
   .partrow { display:flex; align-items:center; gap:10px; padding:9px 12px; border:1px solid var(--line);
     border-radius:8px; margin-bottom:8px; background:var(--panel2); cursor:pointer; font-size:13px; }
   .partrow:hover { border-color:var(--acc); }
@@ -355,7 +363,6 @@
       <button class="btn" id="btnReportTrim" data-i18n="reportBtn">Mostrar reporte</button>
       <button class="btn" id="btnPreview" data-i18n="btnPreview">Previsualizar recorte</button>
       <button class="btn primary" id="btnSave" data-i18n="btnSave">Guardar .hbr2</button>
-      <button class="btn hidden" id="btnOriginal" data-i18n="btnOriginal">Reproducir original</button>
     </div>
     <div class="note" id="noteHead"></div>
     <div id="status"></div>
@@ -379,8 +386,25 @@
     <div id="playerbar">
       <span class="fname" id="playerName"></span>
       <span class="badge hidden" id="modeBadge"></span>
+      <div class="spacer"></div>
+      <button class="btn hidden" id="btnOriginal" data-i18n="btnOriginal">Reproducir original</button>
+      <button class="btn" id="btnCompare" data-i18n="compareOpen">Comparativa</button>
     </div>
     <div id="player"></div>
+  </div>
+
+  <div class="card hidden" id="comparecard">
+    <h2 data-i18n="compareTitle">Comparativa</h2>
+    <div class="compare-grid">
+      <div class="compare-col">
+        <div class="compare-title" id="compareALbl" data-i18n="compareOrig">Original</div>
+        <div class="compare-player" id="compareA"></div>
+      </div>
+      <div class="compare-col">
+        <div class="compare-title" id="compareBLbl" data-i18n="compareRes">Resultado</div>
+        <div class="compare-player" id="compareB"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -414,6 +438,12 @@
       playing: 'Reproduciendo',
       originalLabel: 'original',
       previewLabel: 'recorte',
+      compareTitle: 'Comparativa',
+      compareOpen: 'Comparativa',
+      compareClose: 'Cerrar comparativa',
+      compareOrig: 'Original',
+      compareRes: 'Resultado',
+      compareNoResult: 'Calcula primero un recorte o una eliminación para comparar.',
       noteHead: 'Aviso: recortar por el inicio deja los primeros frames sin las acciones de ese tramo (limitación del formato .hbr2: la sala solo se serializa al principio del archivo).',
       statusLoaded: 'Cargada: {name}',
       statusTrimming: 'Recortando…',
@@ -518,6 +548,12 @@
       playing: 'Playing',
       originalLabel: 'original',
       previewLabel: 'trim',
+      compareTitle: 'Compare',
+      compareOpen: 'Compare',
+      compareClose: 'Close compare',
+      compareOrig: 'Original',
+      compareRes: 'Result',
+      compareNoResult: 'Compute a trim or a cut first to compare.',
       noteHead: 'Note: trimming from the start leaves the first frames without the actions of that segment (a .hbr2 format limitation: the room is only serialized at the beginning of the file).',
       statusLoaded: 'Loaded: {name}',
       statusTrimming: 'Trimming…',
@@ -699,6 +735,7 @@
   }
 
   function teardown() {
+    closeCompare();
     if (state.view) { try { state.view.la(); } catch (e) {} }
     state.view = null; state.rep = null; state.trimMarkers = null;
     window._pxy_rep = null; window._pxy_view = null;
@@ -777,22 +814,25 @@
     }
   }
 
-  function addSeekDrag(view, rep, tb) {
+  function addSeekDrag(view, rep, tb, onSeek) {
     var ctrl = view.te, tl = tb.querySelector('.timetooltip');
     function frac(clientX) {
       var r = tb.getBoundingClientRect();
       return r.width ? (clientX - r.left) / r.width : 0;
+    }
+    function seekAt(clientX) {
+      var pos = Math.max(0, Math.min(1, frac(clientX)));
+      var target = pos * rep.uh * rep.Bf;
+      try { rep.Qr(target); } catch (e) {}
+      if (onSeek) { try { onSeek(target); } catch (e) {} }
+      if (ctrl && !ctrl.lg) { ctrl.lg = true; if (ctrl.Gq) ctrl.Gq(); if (ctrl.El) ctrl.El(); }
     }
     // El motor mapea el clic con (pageX - offsetLeft), y offsetLeft es relativo al
     // ancestro posicionado (no al viewport): en el layout embebido el clic/hover en
     // la barra se desvía (en fullscreen el contenedor está en el origen y coincide).
     // Reemplazamos su onclick/onmousemove por el mismo mapeo del arrastre
     // (clientX + getBoundingClientRect), independiente del scroll y del layout.
-    tb.onclick = function (e) {
-      var pos = Math.max(0, Math.min(1, frac(e.clientX)));
-      try { rep.Qr(pos * rep.uh * rep.Bf); } catch (err) {}
-      if (ctrl && !ctrl.lg) { ctrl.lg = true; if (ctrl.Gq) ctrl.Gq(); if (ctrl.El) ctrl.El(); }
-    };
+    tb.onclick = function (e) { seekAt(e.clientX); };
     tb.onmousemove = function (e) {
       var t = Math.max(0, Math.min(1, frac(e.clientX)));
       if (tl) {
@@ -802,10 +842,6 @@
       }
     };
     var dragging = false;
-    function seekAt(clientX) {
-      var pos = Math.max(0, Math.min(1, frac(clientX)));
-      try { rep.Qr(pos * rep.uh * rep.Bf); } catch (e) {}
-    }
     tb.addEventListener('pointerdown', function (e) {
       dragging = true;
       try { tb.setPointerCapture(e.pointerId); } catch (e) {}
@@ -823,50 +859,107 @@
     tb.addEventListener('pointercancel', endDrag);
   }
 
-  function mountPlayer(bytes, opts) {
-    teardown();
+  function mountPlayer(bytes, opts, container) {
+    var isMain = !container;
+    var root = container || $('player');
+    if (isMain) teardown();
     try {
       var rep = new window._pxy_$b(new Uint8Array(bytes), new window._pxy_va, 3);
       var view = new window._pxy_vc(rep);
-      window._pxy_rep = rep; window._pxy_view = view;
-      window._pxy_lastUb = -1;
-      view._pxyV = function () {
-        try {
-          view.l.A(rep);
-          var ra = window._pxy_ra, ub = rep.Ub, last = window._pxy_lastUb;
-          if (ra && ra.qp && ub > last) {
-            var goals = rep.pl || [], total = rep.uh * rep.Bf;
-            for (var i = 0; i < goals.length; i++) {
-              var t = goals[i].Dj * total;
-              if (t > last && t <= ub) { try { ra.md(ra.qp); } catch (e) {} }
+      if (isMain) {
+        window._pxy_rep = rep; window._pxy_view = view;
+        window._pxy_lastUb = -1;
+        view._pxyV = function () {
+          try {
+            view.l.A(rep);
+            var ra = window._pxy_ra, ub = rep.Ub, last = window._pxy_lastUb;
+            if (ra && ra.qp && ub > last) {
+              var goals = rep.pl || [], total = rep.uh * rep.Bf;
+              for (var i = 0; i < goals.length; i++) {
+                var t = goals[i].Dj * total;
+                if (t > last && t <= ub) { try { ra.md(ra.qp); } catch (e) {} }
+              }
             }
+            window._pxy_lastUb = ub;
           }
-          window._pxy_lastUb = ub;
-        }
-        catch (e) { if (!view._pxyVf) { view._pxyVf = true; setErr(tr('errRender', { f: rep.Y }) + (e && e.message ? e.message : e)); } }
-      };
-      view.te.oe = function () { teardown(); };
-      state.view = view; state.rep = rep; state.isPreview = !!(opts && opts.preview);
+          catch (e) { if (!view._pxyVf) { view._pxyVf = true; setErr(tr('errRender', { f: rep.Y }) + (e && e.message ? e.message : e)); } }
+        };
+      }
+      view.te.oe = isMain
+        ? function () { teardown(); }
+        : function () { try { if (view.l.f.parentNode) view.l.f.parentNode.removeChild(view.l.f); } catch (e) {} };
+      if (isMain) { state.view = view; state.rep = rep; state.isPreview = !!(opts && opts.preview); }
       view.l.f.style.position = 'absolute';
       view.l.f.style.width = '100%';
       view.l.f.style.height = '100%';
       view.l.f.style.top = '0';
       view.l.f.style.left = '0';
-      $('player').appendChild(view.l.f);
+      root.appendChild(view.l.f);
       var te = view.te.f;
       var tb = te.querySelector('[data-hook=timebar]');
       if (tb) {
-        var ms = document.createElement('div'); ms.className = 'marker trim-marker start'; tb.appendChild(ms);
-        var me = document.createElement('div'); me.className = 'marker trim-marker end'; tb.appendChild(me);
-        state.trimMarkers = [ms, me];
-        addSeekDrag(view, rep, tb);
+        if (isMain) {
+          var ms = document.createElement('div'); ms.className = 'marker trim-marker start'; tb.appendChild(ms);
+          var me = document.createElement('div'); me.className = 'marker trim-marker end'; tb.appendChild(me);
+          state.trimMarkers = [ms, me];
+        }
+        addSeekDrag(view, rep, tb, opts && opts.onSeek);
       }
       addPlayerExtras(view.l.f);
-      updateMarkers();
+      if (isMain) updateMarkers();
+      return { rep: rep, view: view };
     } catch (e) {
       setErr(tr('errRender', { f: 0 }) + (e && e.message ? e.message : e));
+      return null;
     }
   }
+
+  var compare = { open: false, a: null, b: null };
+
+  function mirrorCompare(ms, from) {
+    var target = from === 'a' ? compare.b : compare.a;
+    if (target && target.rep) { try { target.rep.Qr(Math.min(ms, target.rep.uh * target.rep.Bf)); } catch (e) {} }
+  }
+
+  function closeCompare() {
+    compare.open = false;
+    if (compare.a) { try { compare.a.view.la(); } catch (e) {} }
+    if (compare.b) { try { compare.b.view.la(); } catch (e) {} }
+    compare.a = null; compare.b = null;
+    $('comparecard').classList.add('hidden');
+    $('compareA').innerHTML = '';
+    $('compareB').innerHTML = '';
+    $('btnCompare').textContent = tr('compareOpen');
+  }
+
+  function openCompare() {
+    if (compare.open) return;
+    var res = state.trimmed || state.partsResult;
+    if (!res) { setStatus(tr('compareNoResult'), 'error'); return; }
+    compare.open = true;
+    $('comparecard').classList.remove('hidden');
+    // El espejo replica el seek de un lado al otro en el MISMO momento del partido
+    // (ms absolutos). Durante la reproducción ambos comparten el reloj y avanzan a
+    // la par; el enganche en la barra evita bucles de sincronización.
+    compare.a = mountPlayer(state.bytes, {
+      onSeek: function (ms) { mirrorCompare(ms, 'a'); }
+    }, $('compareA'));
+    compare.b = mountPlayer(res, {
+      preview: true,
+      onSeek: function (ms) { mirrorCompare(ms, 'b'); }
+    }, $('compareB'));
+    if (!compare.a || !compare.b) { closeCompare(); return; }
+    $('compareALbl').textContent = tr('compareOrig');
+    $('compareBLbl').textContent = tr('compareRes');
+    $('btnCompare').textContent = tr('compareClose');
+  }
+
+  $('btnCompare').addEventListener('click', function () {
+    if (compare.open) closeCompare();
+    else openCompare();
+  });
+  window._pxy_compare = compare;
+  window._pxy_mirror = mirrorCompare;
 
   function updatePlayerBar() {
     $('playerName').textContent = state.name + (state.isPreview ? ' → ' + state.trimmedName : '');
